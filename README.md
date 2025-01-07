@@ -1,5 +1,5 @@
-## Next.js App Router Course - Starter
+## Public Domain App
 
-This is the starter template for the Next.js App Router Course. It contains the starting code for the dashboard application.
+The app is an opportunity to learn Next.js by following the App Router Course. The app automatically promotes the public domain library on several social media networks.
 
 For more information, see the [course curriculum](https://nextjs.org/learn) on the Next.js Website.
