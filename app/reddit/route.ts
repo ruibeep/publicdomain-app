@@ -163,6 +163,29 @@ async function submitLinkWithFlair(redditClient, subreddit, title, url, flairId,
   }
 }
 
+// TODO: This function also exists in app/cron/route.ts and should be moved to a shared module
+// Update post status after successful publishing
+async function updatePostStatus(postId:number) {
+  const query = `
+    UPDATE posts
+    SET status = 'published'
+    WHERE id = $1
+  `;
+  const values = [postId];
+
+  try {
+    await db.query(query, values);
+    console.log(`Post ID ${postId} marked as published.`);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error(`Error updating post status for ID ${postId}:`, error.message);        
+    } else {
+      console.error(`Unpextected Error updating post status for ID ${postId}:`, error);
+    }
+    throw error; // Re-throw the error after logging         
+
+  }
+}
 
 /**
  * Publishes scheduled posts to Reddit.
@@ -183,7 +206,7 @@ async function publishScheduledPosts(redditClient){
       try {
 
         await submitLinkWithFlair(redditClient, 'FreeEBOOKS', post.text, post.book_link, 'a0931564-ffaf-11e2-9318-12313b0cf20e','');
-        //await updatePostStatus(post.id);
+        await updatePostStatus(post.id);
         console.log(`Reddit Link \"${post.text}\" published successfully.`);
       } catch (error) {
         if (error instanceof Error) {
@@ -222,42 +245,30 @@ export async function GET() {
   const flairId = 'a0931564-ffaf-11e2-9318-12313b0cf20e'; // Replace with the correct flair template ID
 
   try {
-    const submission = publishScheduledPosts(redditClient);
+    const publishedResult = await publishScheduledPosts(redditClient);
+    const scheduledResult = await schedulePost();
 
-    /*
-    // Fetch the latest posts from the subreddit
-    const latestPosts = await getLatestPosts(redditClient, 'suggestmeabook');
-
-    return NextResponse.json({
+    return Response.json({
       success: true,
-      data: latestPosts,
-    });
-
-    // Submit a new post
-    // const submission = await submitLinkWithFlair(redditClient,subreddit,linkTitle,linkUrl,flairId,'');
-    */
-
-    if (submission) {
-      return NextResponse.json({
-        success: true,
-        message: 'Post submitted successfully!',
-        // submissionUrl: submission.url,
-      });
-    } else {
-      return NextResponse.json({
-        success: false,
-        message: 'Failed to submit the post.',
-      });
-    }
-  } catch (error) {
-    console.error('Unexpected error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        message: 'An error occurred while processing the request.',
-        error: error.message,
+      message: 'Both functions executed sequentially.',
+      results: {
+        publishedResult,
+        scheduledResult,
       },
-      { status: 500 }
-    );
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error('Error executing functions:', error.message);
+      return Response.json(
+        { success: false, message: error.message },
+        { status: 500 }
+      );
+    } else {
+      console.error('Unknown error occurred:', error);
+      return Response.json(
+        { success: false, message: 'An unknown error occurred.' },
+        { status: 500 }
+      );
+    }
   }
 }
