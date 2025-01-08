@@ -77,6 +77,33 @@ async function schedulePost(){
   return data.rows; 
 }
 
+async function fetchScheduledPosts() {
+  const query = `
+    SELECT *
+    FROM posts
+    WHERE status = 'scheduled'
+      AND platform LIKE '%/r/FreeEBOOKS/%'
+      AND DATE(published_date) = CURRENT_DATE;
+  `;
+
+  try {
+    console.log('Fetch Today Posts for /r/FreeEBOOKS/ ...');
+    const result = await db.query(query);
+    return result.rows;   
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error('   Error fetching scheduled posts for Today:', error.message);
+    } else {
+      console.error('   Unkown error fetching scheduled posts for Today:', error);
+    }
+    throw error; // Re-throw the error after logging
+  }
+}
+
+async function publishScheduledPosts(){
+
+
+}
 
 async function getLatestPosts(redditClient, subreddit, limit = 10) {
   try {
@@ -154,7 +181,7 @@ export async function GET() {
   const flairId = 'a0931564-ffaf-11e2-9318-12313b0cf20e'; // Replace with the correct flair template ID
 
   try {
-    const submission = await schedulePost();
+    const submission = await fetchScheduledPosts();
     /*
     // Submit a new post
     const submission = await submitLinkWithFlair(

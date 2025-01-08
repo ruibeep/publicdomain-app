@@ -1,6 +1,5 @@
 import { db } from "@vercel/postgres";
 import type { NextRequest } from 'next/server'
-import { formatISO } from 'date-fns';
 import { TwitterApi } from 'twitter-api-v2';
 
 // Todo: connection to the database should be requested only after checking CRON_SECRET
@@ -17,31 +16,25 @@ const twitterClient = new TwitterApi({
 // Fetch posts scheduled for today 
 // Todo: it is possible to use postgress date functions to get today's date
 async function fetchScheduledPosts() {
-  const today = formatISO(new Date(), { representation: 'date' });
-  const todayStart = `${today} 00:00:00`;
-  const todayEnd = `${today} 23:59:59`;
 
   const query = `
     SELECT id, text, image_link, platform, published_date 
     FROM posts
     WHERE status = 'scheduled'
-      AND published_date BETWEEN $1 AND $2
+      AND platform LIKE 'X'
+      AND DATE(published_date) = CURRENT_DATE;
   `;
-  const values = [todayStart, todayEnd];
-  console.log(`FetchScheduledPosts: Query ${query}, Values: "${values}".`);
-
 
   try {
-    console.log('Going to run query');
-    const result = await db.query(query, values); // There is a problem here
-    console.log('Going to return results');
+    console.log('Fetch Today Posts for X ...');
+    const result = await db.query(query);
     return result.rows;
     
   } catch (error) {
     if (error instanceof Error) {
-      console.error('Error fetching scheduled posts for Today:', error.message);
+      console.error('   Error fetching scheduled posts for Today:', error.message);
     } else {
-      console.error('Unkown error fetching scheduled posts for Today:', error);
+      console.error('   Unkown error fetching scheduled posts for Today:', error);
     }
     throw error; // Re-throw the error after logging
   }
