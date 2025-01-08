@@ -68,12 +68,10 @@ async function schedulePostForTomorrow() {
       AND published_date < ${tomorrowEnd}::timestamp;
   `;
 
-
   if (existingPosts.rows.length > 0) {
     console.log('A post for tomorrow already exists. Aborting...');
     return [];
   }
-
 
   console.log('Fetch the next quote to publish...');
   // Step 3: Fetch the next quote to publish
@@ -155,7 +153,7 @@ async function schedulePostForTomorrow() {
       final_quotes
     LIMIT 1;
   `;
-  console.log('Query executed');
+  console.log('Fetched the next quote to publish...');
 
   
   const quoteToPost = quoteToPostResult.rows; // Extract the rows array
