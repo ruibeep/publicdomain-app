@@ -1,6 +1,6 @@
 import { db } from "@vercel/postgres";
 import type { NextRequest } from 'next/server'
-import { formatISO, addDays, startOfDay, endOfDay} from 'date-fns';
+import { formatISO } from 'date-fns';
 import { TwitterApi } from 'twitter-api-v2';
 
 // Todo: connection to the database should be requested only after checking CRON_SECRET
@@ -48,33 +48,28 @@ async function fetchScheduledPosts() {
 }
 
 // Writes a new post to the database
-  // Step 1: Get tomorrow's date 
-  // Step 2: Check if there are already posts for tomorrow
-  // Step 3: Fetch the next quote to publish
-  // Step 4: Build the post text dynamically with the full book title  
-  // Step 5: Insert the new post for tomorrow
+  // Step 1: Check if there are already posts for tomorrow
+  // Step 2: Fetch the next quote to publish
+  // Step 3: Build the post text dynamically with the full book title  
+  // Step 4: Insert the new post for tomorrow
 async function schedulePostForTomorrow() {
-  // Step 1: Get tomorrow's date 
-  const today = new Date();
-  const tomorrow = formatISO(addDays(today, 1), { representation: 'date' });
-  const tomorrowStart = `${tomorrow} 00:00:00`;
-  const tomorrowEnd = `${tomorrow} 23:59:59`;
-
-  // Step 2: Check if there are already posts for tomorrow
+  console.log('Step 1: Check if there are already posts for tomorrow...');
   const existingPosts = await client.sql`
     SELECT 1
     FROM posts
-    WHERE published_date >= ${tomorrowStart}::timestamp
-      AND published_date < ${tomorrowEnd}::timestamp;
+    WHERE status = 'scheduled'
+      AND platform LIKE '%X%'
+      AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
   `;
 
   if (existingPosts.rows.length > 0) {
-    console.log('A post for tomorrow already exists. Aborting...');
+    console.log('   A post for tomorrow already exists. Aborting...');
     return [];
+  } else {
+    console.log('   No scheduled posts found for tomorrow. Proceeding...');
   }
 
-  console.log('Fetch the next quote to publish...');
-  // Step 3: Fetch the next quote to publish
+  console.log('Step 2: Fetch the next quote to publish...');
   // Used ChatGPT for creating this SQL query.
   // https://chatgpt.com/share/677d0a6c-a840-8010-8815-5ad1b9226577
   const quoteToPostResult = await client.sql`
@@ -153,20 +148,19 @@ async function schedulePostForTomorrow() {
       final_quotes
     LIMIT 1;
   `;
-  console.log('Fetched the next quote to publish...');
 
-  
   const quoteToPost = quoteToPostResult.rows; // Extract the rows array
-
   if (quoteToPost.length === 0) {
-    console.log('No quotes available to schedule. Aborting...');
+    console.log('   No quotes available to schedule. Aborting...');
     return [];
+  }else {
+    console.log('   Next Quote to post:', quoteToPost[0].quote);
   }
   
+  console.log('Step 3: Build the post text dynamically ...');
   const item = quoteToPost[0]; // Access the first item in the rows array
-  // Step 4: Build the post text dynamically with the full book title
   const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name} #ebooks #mustread #booklovers #book #ReadersCommunity #bookrecommendations #kindlebooks #ClassicLitMonday #BookologyThursday`;
-  
+
   // Step 5: Insert the new post for tomorrow
   const data = await client.sql`
     INSERT INTO posts (quote_id, text, image_link, platform, status, published_date)
@@ -176,11 +170,11 @@ async function schedulePostForTomorrow() {
       ${item.book_cover},
       'X',
       'scheduled',
-      ${tomorrowStart}
+      $(CURRENT_DATE + INTERVAL '1 day')
     );
   `;
 
-  console.log(`Scheduled 1 post for tomorrow: Quote ID ${item.quote_id}, Text: "${postText}".`);
+  console.log(`   Scheduled 1 post for tomorrow: Quote ID ${item.quote_id}, Text: "${postText}".`);
   return data.rows; 
 }
 
