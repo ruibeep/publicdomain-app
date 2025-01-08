@@ -79,11 +79,14 @@ async function schedulePost(){
 
 async function fetchScheduledPosts() {
   const query = `
-    SELECT *
+    SELECT 
+        posts.*,
+        books.link AS book_link
     FROM posts
-    WHERE status = 'scheduled'
-      AND platform LIKE '%/r/FreeEBOOKS/%'
-      AND DATE(published_date) = CURRENT_DATE;
+    LEFT JOIN books ON posts.book_id = books.id
+    WHERE posts.status = 'scheduled'
+      AND posts.platform LIKE '%/r/FreeEBOOKS/%'
+      AND DATE(posts.published_date) = CURRENT_DATE;
   `;
 
   try {
@@ -98,11 +101,6 @@ async function fetchScheduledPosts() {
     }
     throw error; // Re-throw the error after logging
   }
-}
-
-async function publishScheduledPosts(){
-
-
 }
 
 async function getLatestPosts(redditClient, subreddit, limit = 10) {
@@ -165,6 +163,49 @@ async function submitLinkWithFlair(redditClient, subreddit, title, url, flairId,
   }
 }
 
+
+/**
+ * Publishes scheduled posts to Reddit.
+ *
+ * @param {snoowrap} redditClient - Snoowrap instance for Reddit API access.
+ * @returns {Promise<void>} A Promise that resolves when all posts are published.
+ */
+async function publishScheduledPosts(redditClient){
+  try {
+    const scheduledPosts = await fetchScheduledPosts();
+    if (!scheduledPosts.length) {
+      console.error('Reddit: No posts scheduled for today.');
+    } else {
+      console.log(`Reddit: Found ${scheduledPosts.length} scheduled posts for today.`);
+    }
+
+    for (const post of scheduledPosts) {
+      try {
+
+        await submitLinkWithFlair(redditClient, 'FreeEBOOKS', post.text, post.book_link, 'a0931564-ffaf-11e2-9318-12313b0cf20e','');
+        //await updatePostStatus(post.id);
+        console.log(`Reddit Link \"${post.text}\" published successfully.`);
+      } catch (error) {
+        if (error instanceof Error) {
+          console.error(`Failed to publish post ID ${post.text}:`, error.message);
+        } else {
+          console.error(`Unpextected error while publishing post ID ${post.text}:`, error);
+        }
+        throw error; // Re-throw the error after logging         
+      }
+    }    
+
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error('   Reddit: Error processing scheduled posts:', error.message);
+    } else {
+      console.error('   Reddit: An unexpected error processing scheduled posts::', error);
+    }
+    throw error; // Re-throw the error after logging 
+  }
+}
+
+
 // The main GET API route
 export async function GET() {
   const redditClient = new snoowrap({
@@ -176,22 +217,14 @@ export async function GET() {
   });
 
   const subreddit = 'FreeEBOOKS';
-  const linkTitle = 'Crime and Punishment by Fyodor Dostoevsky';
-  const linkUrl = 'https://publicdomainlibrary.org/en/books/crime-and-punishment';
+  const linkTitle = 'The Autobiography of Benjamin Franklin';
+  const linkUrl = 'https://publicdomainlibrary.org/en/books/the-autobiography-of-benjamin-franklin';
   const flairId = 'a0931564-ffaf-11e2-9318-12313b0cf20e'; // Replace with the correct flair template ID
 
   try {
-    const submission = await fetchScheduledPosts();
+    const submission = publishScheduledPosts(redditClient);
+
     /*
-    // Submit a new post
-    const submission = await submitLinkWithFlair(
-      redditClient,
-      subreddit,
-      linkTitle,
-      linkUrl,
-      flairId,
-      ''   
-      );     
     // Fetch the latest posts from the subreddit
     const latestPosts = await getLatestPosts(redditClient, 'suggestmeabook');
 
@@ -199,10 +232,11 @@ export async function GET() {
       success: true,
       data: latestPosts,
     });
- 
 
+    // Submit a new post
+    // const submission = await submitLinkWithFlair(redditClient,subreddit,linkTitle,linkUrl,flairId,'');
+    */
 
-*/
     if (submission) {
       return NextResponse.json({
         success: true,
@@ -225,6 +259,5 @@ export async function GET() {
       },
       { status: 500 }
     );
-       
   }
 }
