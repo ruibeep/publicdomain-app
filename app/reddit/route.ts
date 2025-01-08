@@ -172,15 +172,15 @@ export async function GET() {
       success: true,
       data: latestPosts,
     });
-    */
+ 
 
 
-
+*/
     if (submission) {
       return NextResponse.json({
         success: true,
         message: 'Post submitted successfully!',
-        submissionUrl: submission.url,
+        // submissionUrl: submission.url,
       });
     } else {
       return NextResponse.json({
@@ -198,5 +198,6 @@ export async function GET() {
       },
       { status: 500 }
     );
+       
   }
 }
