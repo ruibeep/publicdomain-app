@@ -1,17 +1,17 @@
 import { db } from '@vercel/postgres';
 import snoowrap from 'snoowrap';
 
+const client = await db.connect();
+
 interface SocialMediaClient {
-  schedulePost(text: string, imageLink?: string): Promise<void>;
+  schedulePost(): Promise<any[]>;
   publishScheduledPosts(): Promise<void>;
 }
 
 class RedditClient implements SocialMediaClient {
   private redditApi: snoowrap;
-  //private database;
 
   constructor(apiConfig: { clientId: string; clientSecret: string; username: string; password: string; userAgent: string }) {
-    //this.database =  db.connect();
     this.redditApi = new snoowrap({
       clientId: apiConfig.clientId,
       clientSecret: apiConfig.clientSecret,
@@ -20,141 +20,136 @@ class RedditClient implements SocialMediaClient {
       userAgent: apiConfig.userAgent,
     });
   }
-
-  async schedulePost(text: string, imageLink?: string): Promise<void> {
-    // For Reddit, scheduling might involve saving the post details to your database.
-    console.log('Scheduling post for Reddit:', { text, imageLink });
-    // Save to the database with a status of "scheduled".
-  }
-  
-    /**
-   * Fetch the latest posts from a subreddit.
-   * @param subreddit - The name of the subreddit (e.g., "javascript").
-   * @param limit - The number of latest posts to fetch (default: 10).
-   * @returns A promise that resolves to an array of posts.
-   */
-    async getLatestPosts(subreddit: string, limit: number = 10): Promise<snoowrap.Submission[]> {
-      try {
-        console.log(`Fetching latest ${limit} posts from subreddit: ${subreddit}`);
-  
-        const posts = await this.redditApi.getSubreddit(subreddit).getNew({ limit });
-  
-        console.log(`Fetched ${posts.length} posts from subreddit: ${subreddit}`);
-        return posts;
-      } catch (error) {
-        console.error(`Failed to fetch posts from subreddit: ${subreddit}`, error);
-        throw error;
-      }
-    }
-
-  async publishScheduledPosts(): Promise<void> {
-   /*   
-    const scheduledPosts = await fetchScheduledPostsForPlatform('reddit'); // Fetch from your database
-
-    for (const post of scheduledPosts) {
-      try {
-        // Example subreddit and flair settings
-        const subreddit = 'exampleSubreddit';
-        const flairId = 'exampleFlairId'; // Replace with the actual flair ID from your subreddit.
-
-        if (post.image_link) {
-          // Reddit supports submitting links with flair.
-          await this.redditApi.getSubreddit(subreddit).submitLinkWithFlair({
-            title: post.text,
-            url: post.image_link,
-            flairId,
-          });
-        } else {
-          // Submit a text post instead
-          await this.redditApi.getSubreddit(subreddit).submitSelfpost({
-            title: post.text,
-            text: '',
-          });
-        }
-
-        console.log(`Successfully published post to Reddit: ${post.text}`);
-      } catch (error) {
-        console.error(`Failed to publish post to Reddit: ${post.text}`, error);
-      }
-    }
-  */
-  }
-}
-
-async function schedulePost() {
-  /*
-  console.log('Step 1: Check if there are already posts for tomorrow...');
-  const existingPosts = await client.sql`
-    SELECT 1
-    FROM posts
-    WHERE status = 'scheduled'
-      AND platform LIKE '%/r/%'
-      AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
-  `;
-
-  if (existingPosts.rows.length > 0) {
-    console.log('   A post for tomorrow already exists. Aborting...');
-    return [];
-  } else {
-    console.log('   No scheduled posts found for tomorrow. Proceeding...');
-  }
-
-  console.log('Step 2: Fetch the next book to publish...');
-  const bookToPostResult = await client.sql`
-    SELECT 
-        b.id AS book_id,
-        b.title AS book_title,
-        b.cover AS book_cover,
-        a.name AS author_name,
-        COUNT(p.book_id) AS post_count
-    FROM 
-        books b
-    LEFT JOIN 
-        authors a
-    ON 
-        b.author_id = a.id
-    LEFT JOIN 
-        posts p
-    ON 
-        b.id = p.book_id AND p.platform LIKE '%/r/FreeEBOOKS/%'
-    GROUP BY 
-        b.id, b.title, b.cover, a.name
-    ORDER BY 
-        post_count ASC
-    LIMIT 1;
+  async schedulePost(): Promise<any[]> {
+    console.log('Step 1: Check if there are already posts for tomorrow...');
+    const existingPosts = await client.sql`
+      SELECT 1
+      FROM posts
+      WHERE status = 'scheduled'
+        AND platform LIKE '%/r/%'
+        AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
     `;
 
-  const bookToPost = bookToPostResult.rows; // Extract the rows array
+    if (existingPosts.rows.length > 0) {
+      console.log('   A post for tomorrow already exists. Aborting...');
+      return [];
+    } else {
+      console.log('   No scheduled posts found for tomorrow. Proceeding...');
+    }
 
-  if (bookToPost.length === 0) {
-    console.log('   No books available to schedule. Aborting...');
-    return [];
-  } else {
-    console.log('   Next book to post:', bookToPost[0].book_title);
+    console.log('Step 2: Fetch the next book to publish...');
+    const bookToPostResult = await client.sql`
+      SELECT 
+          b.id AS book_id,
+          b.title AS book_title,
+          b.cover AS book_cover,
+          a.name AS author_name,
+          COUNT(p.book_id) AS post_count
+      FROM 
+          books b
+      LEFT JOIN 
+          authors a
+      ON 
+          b.author_id = a.id
+      LEFT JOIN 
+          posts p
+      ON 
+          b.id = p.book_id AND p.platform LIKE '%/r/FreeEBOOKS/%'
+      GROUP BY 
+          b.id, b.title, b.cover, a.name
+      ORDER BY 
+          post_count ASC
+      LIMIT 1;
+      `;
+
+    const bookToPost = bookToPostResult.rows; // Extract the rows array
+
+    if (bookToPost.length === 0) {
+      console.log('   No books available to schedule. Aborting...');
+      return [];
+    } else {
+      console.log('   Next book to post:', bookToPost[0].book_title);
+    }
+    const item = bookToPost[0]; // Access the first item in the rows array
+
+    console.log('Step 3: Build the post text dynamically ...');
+    const postText = `${item.book_title} by ${item.author_name}`;
+
+    console.log('Step 4: Insert the new post for tomorrow...');
+    const data = await client.sql`
+      INSERT INTO posts (book_id, text, image_link, platform, status, published_date)
+      VALUES (
+        ${item.book_id},
+        ${postText},
+        ${item.book_cover},
+        '/r/FreeEBOOKS/',
+        'scheduled',
+        (CURRENT_DATE + INTERVAL '1 day')
+      );
+    `;
+
+    console.log(`   Scheduled 1 post for tomorrow: Book ID ${item.book_id}, Text: "${postText}".`);
+    return data.rows;
   }
-  const item = bookToPost[0]; // Access the first item in the rows array
 
-  console.log('Step 3: Build the post text dynamically ...');
-  const postText = `${item.book_title} by ${item.author_name}`;
+  /**
+ * Fetch the latest posts from a subreddit.
+ * @param subreddit - The name of the subreddit (e.g., "javascript").
+ * @param limit - The number of latest posts to fetch (default: 10).
+ * @returns A promise that resolves to an array of posts.
+ */
+  async getLatestPosts(subreddit: string, limit: number = 10): Promise<snoowrap.Submission[]> {
+    try {
+      console.log(`Fetching latest ${limit} posts from subreddit: ${subreddit}`);
 
-  console.log('Step 4: Insert the new post for tomorrow...');
-  const data = await client.sql`
-    INSERT INTO posts (book_id, text, image_link, platform, status, published_date)
-    VALUES (
-      ${item.book_id},
-      ${postText},
-      ${item.book_cover},
-      '/r/FreeEBOOKS/',
-      'scheduled',
-      (CURRENT_DATE + INTERVAL '1 day')
-    );
-  `;
+      const posts = await this.redditApi.getSubreddit(subreddit).getNew({ limit });
 
-  console.log(`   Scheduled 1 post for tomorrow: Book ID ${item.book_id}, Text: "${postText}".`);
-  return data.rows;
-  */
+      console.log(`Fetched ${posts.length} posts from subreddit: ${subreddit}`);
+      return posts;
+    } catch (error) {
+      console.error(`Failed to fetch posts from subreddit: ${subreddit}`, error);
+      throw error;
+    }
+  }
+
+  async publishScheduledPosts(): Promise<void> {
+    try {
+      const scheduledPosts = await fetchScheduledPosts();
+      if (!scheduledPosts.length) {
+        console.error('Reddit: No posts scheduled for today.');
+      } else {
+        console.log(`Reddit: Found ${scheduledPosts.length} scheduled posts for today.`);
+      }
+
+      for (const post of scheduledPosts) {
+        try {
+
+          await submitLinkWithFlair(this.redditApi, 'FreeEBOOKS', post.text, post.book_link, 'a0931564-ffaf-11e2-9318-12313b0cf20e', '');
+          await updatePostStatus(post.id);
+          console.log(`Reddit Link \"${post.text}\" published successfully.`);
+        } catch (error) {
+          if (error instanceof Error) {
+            console.error(`Failed to publish post ID ${post.text}:`, error.message);
+          } else {
+            console.error(`Unpextected error while publishing post ID ${post.text}:`, error);
+          }
+          throw error; // Re-throw the error after logging         
+        }
+      }
+
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('   Reddit: Error processing scheduled posts:', error.message);
+      } else {
+        console.error('   Reddit: An unexpected error processing scheduled posts::', error);
+      }
+      throw error; // Re-throw the error after logging 
+    }
+  }
 }
 
+
+// Called by the RedditClient class
 async function fetchScheduledPosts() {
   const query = `
     SELECT 
@@ -180,7 +175,6 @@ async function fetchScheduledPosts() {
     throw error; // Re-throw the error after logging
   }
 }
-
 
 
 /**
@@ -242,48 +236,6 @@ async function updatePostStatus(postId: number) {
   }
 }
 
-/**
- * Publishes scheduled posts to Reddit.
- *
- * @param {snoowrap} redditClient - Snoowrap instance for Reddit API access.
- * @returns {Promise<void>} A Promise that resolves when all posts are published.
- */
-async function publishScheduledPosts(redditClient) {
-  try {
-    const scheduledPosts = await fetchScheduledPosts();
-    if (!scheduledPosts.length) {
-      console.error('Reddit: No posts scheduled for today.');
-    } else {
-      console.log(`Reddit: Found ${scheduledPosts.length} scheduled posts for today.`);
-    }
-
-    for (const post of scheduledPosts) {
-      try {
-
-        await submitLinkWithFlair(redditClient, 'FreeEBOOKS', post.text, post.book_link, 'a0931564-ffaf-11e2-9318-12313b0cf20e', '');
-        await updatePostStatus(post.id);
-        console.log(`Reddit Link \"${post.text}\" published successfully.`);
-      } catch (error) {
-        if (error instanceof Error) {
-          console.error(`Failed to publish post ID ${post.text}:`, error.message);
-        } else {
-          console.error(`Unpextected error while publishing post ID ${post.text}:`, error);
-        }
-        throw error; // Re-throw the error after logging         
-      }
-    }
-
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error('   Reddit: Error processing scheduled posts:', error.message);
-    } else {
-      console.error('   Reddit: An unexpected error processing scheduled posts::', error);
-    }
-    throw error; // Re-throw the error after logging 
-  }
-}
-
-
 // The main GET API route
 export async function GET() {
 
@@ -296,12 +248,15 @@ export async function GET() {
   });
 
   try {
-    const latestPosts = await redditClient.getLatestPosts('suggestmeabook', 10);
+    //const latestPosts = await redditClient.getLatestPosts('suggestmeabook', 10);
+    //const latestPosts = await redditClient.schedulePost();
+    const latestPosts = await redditClient.publishScheduledPosts();
+    /*
     console.log('Latest Posts:', latestPosts.map(post => ({
       title: post.title,
       url: post.url,
     })));
-
+    */
 
     return Response.json({ success: true, message: 'Fetched latest posts.', latestPosts });
   } catch (error) {
