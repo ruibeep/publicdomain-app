@@ -1,31 +1,54 @@
 import { db } from '@vercel/postgres';
-import { RedditClient } from "../lib/socialMedia";
+import { RedditClient, SocialMediaClient } from "../lib/socialMedia";
 
-const client = await db.connect();
+function createSocialMediaClient(platform: string): SocialMediaClient {
+  switch (platform) {
+    case 'reddit':
+      return new RedditClient({
+        clientId: process.env.REDDIT_CLIENT_ID || '',
+        clientSecret: process.env.REDDIT_CLIENT_SECRET || '',
+        username: process.env.REDDIT_USERNAME || '',
+        password: process.env.REDDIT_PASSWORD || '',
+        userAgent: process.env.REDDIT_USER_AGENT || '',
+      });
+    /*
+    case 'twitter':
+      return new TwitterClient({
+        appKey: process.env.TWITTER_API_KEY || '',
+        appSecret: process.env.TWITTER_API_SECRET || '',
+        accessToken: process.env.TWITTER_ACCESS_TOKEN || '',
+        accessSecret: process.env.TWITTER_ACCESS_SECRET || '',
+      });
+      */      
+    default:
+      throw new Error(`Unsupported platform: ${platform}`);
+  }
+}
+
+async function schedulePostForPlatforms(platforms: string[], dbclient) {
+  for (const platform of platforms) {
+    const client = createSocialMediaClient(platform);
+    await client.schedulePost(dbclient);
+  }
+}
+
+async function publishScheduledPosts(platforms: string[], dbclient) {
+  for (const platform of platforms) {
+    const client = createSocialMediaClient(platform);
+    await client.publishScheduledPosts(dbclient);
+  }
+}
 
 // The main GET API route
 export async function GET() {
-
-  const redditClient = new RedditClient({
-    clientId: process.env.REDDIT_CLIENT_ID || '',
-    clientSecret: process.env.REDDIT_CLIENT_SECRET || '',
-    username: process.env.REDDIT_USERNAME || '',
-    password: process.env.REDDIT_PASSWORD || '',
-    userAgent: process.env.REDDIT_USER_AGENT || '',
-  });
-
+  const databaseClient = await db.connect();
+  const platforms = ['reddit']; // Add more platforms as needed
+  
   try {
-    //const latestPosts = await redditClient.getLatestPosts('suggestmeabook', 10);
-    //const latestPosts = await redditClient.schedulePost();
-    const latestPosts = await redditClient.publishScheduledPosts(client);
-    /*
-    console.log('Latest Posts:', latestPosts.map(post => ({
-      title: post.title,
-      url: post.url,
-    })));
-    */
+    await schedulePostForPlatforms(platforms, databaseClient);
+    // await publishScheduledPosts(platforms, databaseClient);
 
-    return Response.json({ success: true, message: 'Fetched latest posts.', latestPosts });
+    return Response.json({ success: true, message: 'Fetched latest posts.'});
   } catch (error) {
     if (error instanceof Error) {
       console.error('Error fetching posts:', error.message);
