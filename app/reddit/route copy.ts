@@ -1,88 +1,11 @@
+const snoowrap = require('snoowrap');
+const { NextResponse } = require('next/server');
+
 import { db } from '@vercel/postgres';
-import snoowrap from 'snoowrap';
 
-interface SocialMediaClient {
-  schedulePost(text: string, imageLink?: string): Promise<void>;
-  publishScheduledPosts(): Promise<void>;
-}
+const client = await db.connect();
 
-class RedditClient implements SocialMediaClient {
-  private redditApi: snoowrap;
-  //private database;
-
-  constructor(apiConfig: { clientId: string; clientSecret: string; username: string; password: string; userAgent: string }) {
-    //this.database =  db.connect();
-    this.redditApi = new snoowrap({
-      clientId: apiConfig.clientId,
-      clientSecret: apiConfig.clientSecret,
-      username: apiConfig.username,
-      password: apiConfig.password,
-      userAgent: apiConfig.userAgent,
-    });
-  }
-
-  async schedulePost(text: string, imageLink?: string): Promise<void> {
-    // For Reddit, scheduling might involve saving the post details to your database.
-    console.log('Scheduling post for Reddit:', { text, imageLink });
-    // Save to the database with a status of "scheduled".
-  }
-  
-    /**
-   * Fetch the latest posts from a subreddit.
-   * @param subreddit - The name of the subreddit (e.g., "javascript").
-   * @param limit - The number of latest posts to fetch (default: 10).
-   * @returns A promise that resolves to an array of posts.
-   */
-    async getLatestPosts(subreddit: string, limit: number = 10): Promise<snoowrap.Submission[]> {
-      try {
-        console.log(`Fetching latest ${limit} posts from subreddit: ${subreddit}`);
-  
-        const posts = await this.redditApi.getSubreddit(subreddit).getNew({ limit });
-  
-        console.log(`Fetched ${posts.length} posts from subreddit: ${subreddit}`);
-        return posts;
-      } catch (error) {
-        console.error(`Failed to fetch posts from subreddit: ${subreddit}`, error);
-        throw error;
-      }
-    }
-
-  async publishScheduledPosts(): Promise<void> {
-   /*   
-    const scheduledPosts = await fetchScheduledPostsForPlatform('reddit'); // Fetch from your database
-
-    for (const post of scheduledPosts) {
-      try {
-        // Example subreddit and flair settings
-        const subreddit = 'exampleSubreddit';
-        const flairId = 'exampleFlairId'; // Replace with the actual flair ID from your subreddit.
-
-        if (post.image_link) {
-          // Reddit supports submitting links with flair.
-          await this.redditApi.getSubreddit(subreddit).submitLinkWithFlair({
-            title: post.text,
-            url: post.image_link,
-            flairId,
-          });
-        } else {
-          // Submit a text post instead
-          await this.redditApi.getSubreddit(subreddit).submitSelfpost({
-            title: post.text,
-            text: '',
-          });
-        }
-
-        console.log(`Successfully published post to Reddit: ${post.text}`);
-      } catch (error) {
-        console.error(`Failed to publish post to Reddit: ${post.text}`, error);
-      }
-    }
-  */
-  }
-}
-
-async function schedulePost() {
-  /*
+async function schedulePost(){
   console.log('Step 1: Check if there are already posts for tomorrow...');
   const existingPosts = await client.sql`
     SELECT 1
@@ -151,8 +74,7 @@ async function schedulePost() {
   `;
 
   console.log(`   Scheduled 1 post for tomorrow: Book ID ${item.book_id}, Text: "${postText}".`);
-  return data.rows;
-  */
+  return data.rows; 
 }
 
 async function fetchScheduledPosts() {
@@ -170,7 +92,7 @@ async function fetchScheduledPosts() {
   try {
     console.log('Fetch Today Posts for /r/FreeEBOOKS/ ...');
     const result = await db.query(query);
-    return result.rows;
+    return result.rows;   
   } catch (error) {
     if (error instanceof Error) {
       console.error('   Error fetching scheduled posts for Today:', error.message);
@@ -181,7 +103,30 @@ async function fetchScheduledPosts() {
   }
 }
 
+async function getLatestPosts(redditClient, subreddit, limit = 10) {
+  try {
+    // Get the subreddit object
+    const subredditObj = redditClient.getSubreddit(subreddit);
 
+    // Fetch the latest posts (default sorting is 'new')
+    const posts = await subredditObj.getNew({ limit });
+
+    // Map the results to include only essential details
+    const formattedPosts = posts.map(post => ({
+      title: post.title,
+      url: post.url,
+      author: post.author.name,
+      created_utc: post.created_utc,
+      id: post.id,
+    }));
+
+    console.log(`Fetched ${formattedPosts.length} posts from /r/${subreddit}`);
+    return formattedPosts;
+  } catch (error) {
+    console.error('Error fetching posts:', error);
+    return null;
+  }
+}
 
 /**
  * Submits a link to Reddit with a specified flair.
@@ -199,12 +144,12 @@ async function submitLinkWithFlair(redditClient, subreddit, title, url, flairId,
     const subredditObj = redditClient.getSubreddit(subreddit);
 
     // Prepare the options for the submission
-    const options: any = {
+    const options : any = {
       title: title,
       url: url,
       resubmit: false,
     };
-
+    
     if (flairId) options.flairId = flairId;
     if (flairText) options.flairText = flairText;
     // Submit the link with flair
@@ -218,29 +163,6 @@ async function submitLinkWithFlair(redditClient, subreddit, title, url, flairId,
   }
 }
 
-// TODO: This function also exists in app/cron/route.ts and should be moved to a shared module
-// Update post status after successful publishing
-async function updatePostStatus(postId: number) {
-  const query = `
-    UPDATE posts
-    SET status = 'published'
-    WHERE id = $1
-  `;
-  const values = [postId];
-
-  try {
-    await db.query(query, values);
-    console.log(`Post ID ${postId} marked as published.`);
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error(`Error updating post status for ID ${postId}:`, error.message);
-    } else {
-      console.error(`Unpextected Error updating post status for ID ${postId}:`, error);
-    }
-    throw error; // Re-throw the error after logging         
-
-  }
-}
 
 /**
  * Publishes scheduled posts to Reddit.
@@ -248,7 +170,7 @@ async function updatePostStatus(postId: number) {
  * @param {snoowrap} redditClient - Snoowrap instance for Reddit API access.
  * @returns {Promise<void>} A Promise that resolves when all posts are published.
  */
-async function publishScheduledPosts(redditClient) {
+async function publishScheduledPosts(redditClient){
   try {
     const scheduledPosts = await fetchScheduledPosts();
     if (!scheduledPosts.length) {
@@ -260,8 +182,8 @@ async function publishScheduledPosts(redditClient) {
     for (const post of scheduledPosts) {
       try {
 
-        await submitLinkWithFlair(redditClient, 'FreeEBOOKS', post.text, post.book_link, 'a0931564-ffaf-11e2-9318-12313b0cf20e', '');
-        await updatePostStatus(post.id);
+        await submitLinkWithFlair(redditClient, 'FreeEBOOKS', post.text, post.book_link, '0931564-ffaf-11e2-9318-123a13b0cf20e','');
+        //await updatePostStatus(post.id);
         console.log(`Reddit Link \"${post.text}\" published successfully.`);
       } catch (error) {
         if (error instanceof Error) {
@@ -271,7 +193,7 @@ async function publishScheduledPosts(redditClient) {
         }
         throw error; // Re-throw the error after logging         
       }
-    }
+    }    
 
   } catch (error) {
     if (error instanceof Error) {
@@ -286,31 +208,71 @@ async function publishScheduledPosts(redditClient) {
 
 // The main GET API route
 export async function GET() {
-
-  const redditClient = new RedditClient({
+  const redditClient = new snoowrap({
+    userAgent: process.env.REDDIT_USER_AGENT || '',
     clientId: process.env.REDDIT_CLIENT_ID || '',
     clientSecret: process.env.REDDIT_CLIENT_SECRET || '',
     username: process.env.REDDIT_USERNAME || '',
     password: process.env.REDDIT_PASSWORD || '',
-    userAgent: process.env.REDDIT_USER_AGENT || '',
   });
 
+  const subredditname = 'FreeEBOOKS';
+  const linkTitle = 'The Autobiography of Benjamin Franklin';
+  const linkUrl = 'https://publicdomainlibrary.org/en/books/the-autobiography-of-benjamin-franklin';
+  const flairId = '0931564-ffaf-11e2-9318-123a13b0cf20e';
+
   try {
-    const latestPosts = await redditClient.getLatestPosts('suggestmeabook', 10);
-    console.log('Latest Posts:', latestPosts.map(post => ({
-      title: post.title,
-      url: post.url,
-    })));
+    //const submission = await publishScheduledPosts(redditClient);
+    const subreddit = await redditClient.getSubreddit(subredditname);
+    const flairs = await subreddit.getUserFlairTemplates();   
+    console.log(`Available flairs in /r/FreeEBOOKS:`);
+    flairs.forEach((flair, index) => {
+      console.log(`${index + 1}. Flair text: ${flair.text || 'No text'}, CSS class: ${flair.css_class || 'None'}`);
+    });
 
-
-    return Response.json({ success: true, message: 'Fetched latest posts.', latestPosts });
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error('Error fetching posts:', error.message);
-      return Response.json({ success: false, message: error.message }, { status: 500 });
+   /*  
+    // Submit a new post
+    const submission = await submitLinkWithFlair(
+      redditClient,
+      subredditname,
+      linkTitle,
+      linkUrl,
+      flairId,
+      ''   
+      );
+   */
+    if (flairs.length > 0) {
+      return NextResponse.json({
+        success: true,
+        message: 'Post submitted successfully!',
+        // submissionUrl: submission.url,
+      });
     } else {
-      console.error('Unknown error fetching posts:', error);
-      return Response.json({ success: false, message: 'An unknown error occurred.' }, { status: 500 });
+      return NextResponse.json({
+        success: false,
+        message: 'Failed to submit the post.',
+      });
     }
+
+/*
+        // Fetch the latest posts from the subreddit
+        const latestPosts = await getLatestPosts(redditClient, 'suggestmeabook');
+
+        return NextResponse.json({
+          success: true,
+          data: latestPosts,
+        });
+*/
+  } catch (error) {
+    console.error('Unexpected error:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        message: 'An error occurred while processing the request.',
+        error: error.message,
+      },
+      { status: 500 }
+    );
+       
   }
 }
