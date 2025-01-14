@@ -153,8 +153,9 @@ async function schedulePostForTomorrow() {
   console.log('Step 3: Build the post text dynamically ...');
   const item = quoteToPost[0]; // Access the first item in the rows array
   const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name} #ebooks #mustread #booklovers #book #ReadersCommunity #bookrecommendations #kindlebooks #ClassicLitMonday #BookologyThursday`;
+  console.log('  Post text:', postText);
 
-  // Step 5: Insert the new post for tomorrow
+  console.log('Step 4: Insert the new post for tomorrow ...');
   const data = await client.sql`
     INSERT INTO posts (quote_id, text, image_link, platform, status, published_date)
     VALUES (
@@ -163,7 +164,7 @@ async function schedulePostForTomorrow() {
       ${item.book_cover},
       'X',
       'scheduled',
-      $(CURRENT_DATE + INTERVAL '1 day')
+      (CURRENT_DATE + INTERVAL '1 day')
     );
   `;
 

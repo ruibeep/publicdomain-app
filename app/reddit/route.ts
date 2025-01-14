@@ -46,7 +46,7 @@ export async function GET() {
   
   try {
     await schedulePostForPlatforms(platforms, databaseClient);
-    // await publishScheduledPosts(platforms, databaseClient);
+    await publishScheduledPosts(platforms, databaseClient);
 
     return Response.json({ success: true, message: 'Fetched latest posts.'});
   } catch (error) {

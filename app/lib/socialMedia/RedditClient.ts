@@ -16,17 +16,16 @@ export class RedditClient implements SocialMediaClient {
         });
     }
 
-
     async schedulePost(client: VercelPoolClient): Promise<any[]> {
         console.log('Step 1: Check if there are already posts for tomorrow...');
 
         const existingPosts = await client.sql`
-      SELECT 1
-      FROM posts
-      WHERE status = 'scheduled'
-        AND platform LIKE '%/r/%'
-        AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
-    `;
+            SELECT 1
+            FROM posts
+            WHERE status = 'scheduled'
+                AND platform LIKE '%/r/%'
+                AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
+            `;
 
         if (existingPosts.rows.length > 0) {
             console.log('   A post for tomorrow already exists. Aborting...');
@@ -37,28 +36,28 @@ export class RedditClient implements SocialMediaClient {
 
         console.log('Step 2: Fetch the next book to publish...');
         const bookToPostResult = await client.sql`
-      SELECT 
-          b.id AS book_id,
-          b.title AS book_title,
-          b.cover AS book_cover,
-          a.name AS author_name,
-          COUNT(p.book_id) AS post_count
-      FROM 
-          books b
-      LEFT JOIN 
-          authors a
-      ON 
-          b.author_id = a.id
-      LEFT JOIN 
-          posts p
-      ON 
-          b.id = p.book_id AND p.platform LIKE '%/r/FreeEBOOKS/%'
-      GROUP BY 
-          b.id, b.title, b.cover, a.name
-      ORDER BY 
-          post_count ASC
-      LIMIT 1;
-      `;
+            SELECT 
+                b.id AS book_id,
+                b.title AS book_title,
+                b.cover AS book_cover,
+                a.name AS author_name,
+                COUNT(p.book_id) AS post_count
+            FROM 
+                books b
+            LEFT JOIN 
+                authors a
+            ON 
+                b.author_id = a.id
+            LEFT JOIN 
+                posts p
+            ON 
+                b.id = p.book_id AND p.platform LIKE '%/r/FreeEBOOKS/%'
+            GROUP BY 
+                b.id, b.title, b.cover, a.name
+            ORDER BY 
+                post_count ASC
+            LIMIT 1;
+            `;
 
         const bookToPost = bookToPostResult.rows; // Extract the rows array
 
@@ -75,16 +74,16 @@ export class RedditClient implements SocialMediaClient {
 
         console.log('Step 4: Insert the new post for tomorrow...');
         const data = await client.sql`
-      INSERT INTO posts (book_id, text, image_link, platform, status, published_date)
-      VALUES (
-        ${item.book_id},
-        ${postText},
-        ${item.book_cover},
-        '/r/FreeEBOOKS/',
-        'scheduled',
-        (CURRENT_DATE + INTERVAL '1 day')
-      );
-    `;
+            INSERT INTO posts (book_id, text, image_link, platform, status, published_date)
+            VALUES (
+                ${item.book_id},
+                ${postText},
+                ${item.book_cover},
+                '/r/FreeEBOOKS/',
+                'scheduled',
+                (CURRENT_DATE + INTERVAL '1 day')
+            );
+            `;
 
         console.log(`   Scheduled 1 post for tomorrow: Book ID ${item.book_id}, Text: "${postText}".`);
         return data.rows;
@@ -210,7 +209,7 @@ async function submitLinkWithFlair(redditClient, subreddit, title, url, flairId,
 
 // TODO: This function also exists in app/cron/route.ts and should be moved to a shared module
 // Update post status after successful publishing
-async function updatePostStatus(client,postId: number) {
+async function updatePostStatus(client, postId: number) {
     const query = `
     UPDATE posts
     SET status = 'published'
