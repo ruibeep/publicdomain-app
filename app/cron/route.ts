@@ -14,7 +14,6 @@ const twitterClient = new TwitterApi({
 });
 
 // Fetch posts scheduled for today 
-// Todo: it is possible to use postgress date functions to get today's date
 async function fetchScheduledPosts() {
 
   const query = `

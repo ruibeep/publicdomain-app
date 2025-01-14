@@ -24,14 +24,14 @@ export class XClient implements SocialMediaClient {
             AND platform LIKE '%X%'
             AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
         `;
-      
+
         if (existingPosts.rows.length > 0) {
-          console.log('   A post for tomorrow already exists. Aborting...');
-          return [];
+            console.log('   A post for tomorrow already exists. Aborting...');
+            return [];
         } else {
-          console.log('   No scheduled posts found for tomorrow. Proceeding...');
+            console.log('   No scheduled posts found for tomorrow. Proceeding...');
         }
-      
+
         console.log('Step 2: Fetch the next quote to publish...');
         // Used ChatGPT for creating this SQL query.
         // https://chatgpt.com/share/677d0a6c-a840-8010-8815-5ad1b9226577
@@ -111,20 +111,20 @@ export class XClient implements SocialMediaClient {
             final_quotes
           LIMIT 1;
         `;
-      
+
         const quoteToPost = quoteToPostResult.rows; // Extract the rows array
         if (quoteToPost.length === 0) {
-          console.log('   No quotes available to schedule. Aborting...');
-          return [];
-        }else {
-          console.log('   Next Quote to post:', quoteToPost[0].quote);
+            console.log('   No quotes available to schedule. Aborting...');
+            return [];
+        } else {
+            console.log('   Next Quote to post:', quoteToPost[0].quote);
         }
-        
+
         console.log('Step 3: Build the post text dynamically ...');
         const item = quoteToPost[0]; // Access the first item in the rows array
         const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name} #ebooks #mustread #booklovers #book #ReadersCommunity #bookrecommendations #kindlebooks #ClassicLitMonday #BookologyThursday`;
         console.log('  Post text:', postText);
-      
+
         console.log('Step 4: Insert the new post for tomorrow ...');
         const data = await client.sql`
           INSERT INTO posts (quote_id, text, image_link, platform, status, published_date)
@@ -137,25 +137,110 @@ export class XClient implements SocialMediaClient {
             (CURRENT_DATE + INTERVAL '1 day')
           );
         `;
-      
+
         console.log(`   Scheduled 1 post for tomorrow: Quote ID ${item.quote_id}, Text: "${postText}".`);
-        return data.rows; 
+        return data.rows;
     }
 
     async publishScheduledPosts(client: VercelPoolClient): Promise<void> {
-        // this.postToTwitter('Hello World');
-    }
+        try {
+            console.log('Fetching scheduled posts...');
+            const scheduledPosts = await this.fetchScheduledPosts(client);
+            console.log('Fetch scheduled posts done.');
 
-    async downloadImage(url: string): Promise<Buffer> {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch image: ${response.statusText}`);
+            if (!scheduledPosts.length) {
+                console.error('No posts scheduled for today.');
+            }
+
+            console.log(`Found ${scheduledPosts.length} posts for today. Posting...`);
+
+            for (const post of scheduledPosts) {
+                try {
+                    await this.postToTwitter(post.text, post.image_link);
+                    await this.updatePostStatus(client, post.id);
+                    console.log(`Post ID ${post.id} published successfully.`);
+                } catch (error) {
+                    if (error instanceof Error) {
+                        console.error(`Failed to publish post ID ${post.id}:`, error.message);
+                    } else {
+                        console.error(`Unpextected error while publishing post ID ${post.id}:`, error);
+                    }
+                    throw error; // Re-throw the error after logging         
+                }
+            }
+
+            console.log('All posts scheduled for today have been processed.');
+        } catch (error) {
+            if (error instanceof Error) {
+                console.error('Error processing scheduled posts:', error.message);
+            } else {
+                console.error('An unexpected error processing scheduled posts::', error);
+            }
+            throw error; // Re-throw the error after logging 
         }
-        return Buffer.from(await response.arrayBuffer());
     }
 
-    // Post a single quote to Twitter
-    async postToTwitter(text: string, imageLink?: string | null) {
+    // Update post status after successful publishing
+    async updatePostStatus(client: VercelPoolClient, postId:number): Promise<void> {
+        const query = `
+        UPDATE posts
+        SET status = 'published'
+        WHERE id = $1
+        `;
+        const values = [postId];
+    
+        try {
+        await client.query(query, values);
+        console.log(`Post ID ${postId} marked as published.`);
+        } catch (error) {
+        if (error instanceof Error) {
+            console.error(`Error updating post status for ID ${postId}:`, error.message);        
+        } else {
+            console.error(`Unpextected Error updating post status for ID ${postId}:`, error);
+        }
+        throw error; // Re-throw the error after logging         
+    
+        }
+    }
+
+    // Fetch posts scheduled for today 
+    async fetchScheduledPosts(client: VercelPoolClient): Promise<any[]> {
+        const query = `
+            SELECT id, text, image_link, platform, published_date 
+            FROM posts
+            WHERE status = 'scheduled'
+                AND platform LIKE 'X'
+                AND DATE(published_date) = CURRENT_DATE;
+            `;
+
+        try {
+            console.log('Fetch Today Posts for X ...');
+            const result = await client.query(query);
+            return result.rows;
+
+        } catch (error) {
+            if (error instanceof Error) {
+                console.error('   Error fetching scheduled posts for Today:', error.message);
+            } else {
+                console.error('   Unkown error fetching scheduled posts for Today:', error);
+            }
+            throw error; // Re-throw the error after logging
+        }
+    }   
+
+
+
+
+    async downloadImage(url: string): Promise < Buffer > {
+    const response = await fetch(url);
+    if(!response.ok) {
+    throw new Error(`Failed to fetch image: ${response.statusText}`);
+}
+return Buffer.from(await response.arrayBuffer());
+    }
+
+        // Post a single quote to Twitter
+        async postToTwitter(text: string, imageLink ?: string | null) {
         try {
             if (imageLink) {
                 console.log('Downloading image...');
@@ -188,3 +273,4 @@ export class XClient implements SocialMediaClient {
         }
     }
 }
+

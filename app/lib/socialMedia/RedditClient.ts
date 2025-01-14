@@ -89,26 +89,6 @@ export class RedditClient implements SocialMediaClient {
         return data.rows;
     }
 
-    /**
-   * Fetch the latest posts from a subreddit.
-   * @param subreddit - The name of the subreddit (e.g., "javascript").
-   * @param limit - The number of latest posts to fetch (default: 10).
-   * @returns A promise that resolves to an array of posts.
-   */
-    async getLatestPosts(subreddit: string, limit: number = 10): Promise<snoowrap.Submission[]> {
-        try {
-            console.log(`Fetching latest ${limit} posts from subreddit: ${subreddit}`);
-
-            const posts = await this.redditApi.getSubreddit(subreddit).getNew({ limit });
-
-            console.log(`Fetched ${posts.length} posts from subreddit: ${subreddit}`);
-            return posts;
-        } catch (error) {
-            console.error(`Failed to fetch posts from subreddit: ${subreddit}`, error);
-            throw error;
-        }
-    }
-
     async publishScheduledPosts(client: VercelPoolClient): Promise<void> {
         try {
             const scheduledPosts = await fetchScheduledPosts(client);
@@ -143,31 +123,26 @@ export class RedditClient implements SocialMediaClient {
             throw error; // Re-throw the error after logging 
         }
     }
-}
 
-// Called by the RedditClient class
-async function fetchScheduledPosts(client: VercelPoolClient) {
+    // Only used for testing
+    /**
+   * Fetch the latest posts from a subreddit.
+   * @param subreddit - The name of the subreddit (e.g., "javascript").
+   * @param limit - The number of latest posts to fetch (default: 10).
+   * @returns A promise that resolves to an array of posts.
+   */
+    async getLatestPosts(subreddit: string, limit: number = 10): Promise<snoowrap.Submission[]> {
+        try {
+            console.log(`Fetching latest ${limit} posts from subreddit: ${subreddit}`);
 
-    try {
-        console.log('Fetch Today Posts for /r/FreeEBOOKS/ ...');
-        const result = await client.sql`
-            SELECT 
-                posts.*,
-                books.link AS book_link
-            FROM posts
-            LEFT JOIN books ON posts.book_id = books.id
-            WHERE posts.status = 'scheduled'
-            AND posts.platform LIKE '%/r/FreeEBOOKS/%'
-            AND DATE(posts.published_date) = CURRENT_DATE;
-        `;
-        return result.rows;
-    } catch (error) {
-        if (error instanceof Error) {
-            console.error('   Error fetching scheduled posts for Today:', error.message);
-        } else {
-            console.error('   Unkown error fetching scheduled posts for Today:', error);
+            const posts = await this.redditApi.getSubreddit(subreddit).getNew({ limit });
+
+            console.log(`Fetched ${posts.length} posts from subreddit: ${subreddit}`);
+            return posts;
+        } catch (error) {
+            console.error(`Failed to fetch posts from subreddit: ${subreddit}`, error);
+            throw error;
         }
-        throw error; // Re-throw the error after logging
     }
 }
 
@@ -204,6 +179,33 @@ async function submitLinkWithFlair(redditClient, subreddit, title, url, flairId,
     } catch (error) {
         console.error('Error submitting post with flair:', error);
         return null;
+    }
+}
+
+
+// Called by the RedditClient class
+async function fetchScheduledPosts(client: VercelPoolClient) {
+
+    try {
+        console.log('Fetch Today Posts for /r/FreeEBOOKS/ ...');
+        const result = await client.sql`
+            SELECT 
+                posts.*,
+                books.link AS book_link
+            FROM posts
+            LEFT JOIN books ON posts.book_id = books.id
+            WHERE posts.status = 'scheduled'
+                AND posts.platform LIKE '%/r/FreeEBOOKS/%'
+                AND DATE(posts.published_date) = CURRENT_DATE;
+        `;
+        return result.rows;
+    } catch (error) {
+        if (error instanceof Error) {
+            console.error('   Error fetching scheduled posts for Today:', error.message);
+        } else {
+            console.error('   Unkown error fetching scheduled posts for Today:', error);
+        }
+        throw error; // Re-throw the error after logging
     }
 }
 
