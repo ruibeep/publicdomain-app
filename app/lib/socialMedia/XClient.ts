@@ -1,11 +1,13 @@
 import { VercelPoolClient } from "@vercel/postgres";
-import { SocialMediaClient } from "./SocialMediaClient";
+import { BaseSocialMediaClient, SocialMediaClient } from "./SocialMediaClient";
 import { TwitterApi } from 'twitter-api-v2';
 
-export class XClient implements SocialMediaClient {
+export class XClient extends BaseSocialMediaClient implements SocialMediaClient {
+    protected platform = 'X';
     private XApi: TwitterApi;
 
     constructor(apiConfig: { appKey: string; appSecret: string; accessToken: string; accessSecret: string }) {
+        super();
         // Initialize Twitter client with OAuth 1.0a credentials
         this.XApi = new TwitterApi({
             appKey: apiConfig.appKey,
@@ -180,67 +182,8 @@ export class XClient implements SocialMediaClient {
         }
     }
 
-    // Update post status after successful publishing
-    async updatePostStatus(client: VercelPoolClient, postId:number): Promise<void> {
-        const query = `
-        UPDATE posts
-        SET status = 'published'
-        WHERE id = $1
-        `;
-        const values = [postId];
-    
-        try {
-        await client.query(query, values);
-        console.log(`Post ID ${postId} marked as published.`);
-        } catch (error) {
-        if (error instanceof Error) {
-            console.error(`Error updating post status for ID ${postId}:`, error.message);        
-        } else {
-            console.error(`Unpextected Error updating post status for ID ${postId}:`, error);
-        }
-        throw error; // Re-throw the error after logging         
-    
-        }
-    }
-
-    // Fetch posts scheduled for today 
-    async fetchScheduledPosts(client: VercelPoolClient): Promise<any[]> {
-        const query = `
-            SELECT id, text, image_link, platform, published_date 
-            FROM posts
-            WHERE status = 'scheduled'
-                AND platform LIKE 'X'
-                AND DATE(published_date) = CURRENT_DATE;
-            `;
-
-        try {
-            console.log('Fetch Today Posts for X ...');
-            const result = await client.query(query);
-            return result.rows;
-
-        } catch (error) {
-            if (error instanceof Error) {
-                console.error('   Error fetching scheduled posts for Today:', error.message);
-            } else {
-                console.error('   Unkown error fetching scheduled posts for Today:', error);
-            }
-            throw error; // Re-throw the error after logging
-        }
-    }   
-
-
-
-
-    async downloadImage(url: string): Promise < Buffer > {
-    const response = await fetch(url);
-    if(!response.ok) {
-    throw new Error(`Failed to fetch image: ${response.statusText}`);
-}
-return Buffer.from(await response.arrayBuffer());
-    }
-
-        // Post a single quote to Twitter
-        async postToTwitter(text: string, imageLink ?: string | null) {
+    // Post a single quote to Twitter
+    async postToTwitter(text: string, imageLink?: string | null) {
         try {
             if (imageLink) {
                 console.log('Downloading image...');
@@ -271,6 +214,15 @@ return Buffer.from(await response.arrayBuffer());
             }
             throw error; // Re-throw the error after logging
         }
+    }
+
+    // Download an image from a URL
+    async downloadImage(url: string): Promise<Buffer> {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.statusText}`);
+        }
+        return Buffer.from(await response.arrayBuffer());
     }
 }
 

@@ -1,12 +1,14 @@
 import { VercelPoolClient } from "@vercel/postgres";
-import { SocialMediaClient } from "./SocialMediaClient";
+import { BaseSocialMediaClient, SocialMediaClient } from "./SocialMediaClient";
 import snoowrap from 'snoowrap';
 
 
-export class RedditClient implements SocialMediaClient {
+export class RedditClient extends BaseSocialMediaClient implements SocialMediaClient {
+    protected platform = '/r/FreeEBOOKS/';
     private redditApi: snoowrap;
 
     constructor(apiConfig: { clientId: string; clientSecret: string; username: string; password: string; userAgent: string }) {
+        super();
         this.redditApi = new snoowrap({
             clientId: apiConfig.clientId,
             clientSecret: apiConfig.clientSecret,
@@ -91,7 +93,7 @@ export class RedditClient implements SocialMediaClient {
 
     async publishScheduledPosts(client: VercelPoolClient): Promise<void> {
         try {
-            const scheduledPosts = await fetchScheduledPosts(client);
+            const scheduledPosts = await this.fetchScheduledPosts(client);
             if (!scheduledPosts.length) {
                 console.error('Reddit: No posts scheduled for today.');
             } else {
@@ -101,8 +103,8 @@ export class RedditClient implements SocialMediaClient {
             for (const post of scheduledPosts) {
                 try {
 
-                    await submitLinkWithFlair(this.redditApi, 'FreeEBOOKS', post.text, post.book_link, 'a0931564-ffaf-11e2-9318-12313b0cf20e', '');
-                    await updatePostStatus(client, post.id);
+                    await this.submitLinkWithFlair(this.redditApi, 'FreeEBOOKS', post.text, post.book_link, 'a0931564-ffaf-11e2-9318-12313b0cf20e', '');
+                    await this.updatePostStatus(client, post.id);
                     console.log(`Reddit Link \"${post.text}\" published successfully.`);
                 } catch (error) {
                     if (error instanceof Error) {
@@ -121,6 +123,41 @@ export class RedditClient implements SocialMediaClient {
                 console.error('   Reddit: An unexpected error processing scheduled posts::', error);
             }
             throw error; // Re-throw the error after logging 
+        }
+    }
+
+    /**
+     * Submits a link to Reddit with a specified flair.
+     *
+     * @param {snoowrap} redditClient - Snoowrap instance for Reddit API access.
+     * @param {string} subreddit - The subreddit to post in.
+     * @param {string} title - The title of the post.
+     * @param {string} url - The URL to submit.
+     * @param {string} flairId - The flair template ID to apply.
+     * @param {string} flairText - Optional flair text (if allowed by the subreddit).
+     * @returns {Promise<object|null>} A Promise resolving to the submission object or null if submission fails.
+     */
+    async submitLinkWithFlair(redditClient, subreddit, title, url, flairId, flairText) {
+        try {
+            const subredditObj = redditClient.getSubreddit(subreddit);
+
+            // Prepare the options for the submission
+            const options: any = {
+                title: title,
+                url: url,
+                resubmit: false,
+            };
+
+            if (flairId) options.flairId = flairId;
+            if (flairText) options.flairText = flairText;
+            // Submit the link with flair
+            const mySubmission = await subredditObj.submitLink(options);
+
+            console.log(`Post submitted successfully: ${mySubmission.url}`);
+            return mySubmission;
+        } catch (error) {
+            console.error('Error submitting post with flair:', error);
+            return null;
         }
     }
 
@@ -143,92 +180,5 @@ export class RedditClient implements SocialMediaClient {
             console.error(`Failed to fetch posts from subreddit: ${subreddit}`, error);
             throw error;
         }
-    }
-}
-
-
-/**
- * Submits a link to Reddit with a specified flair.
- *
- * @param {snoowrap} redditClient - Snoowrap instance for Reddit API access.
- * @param {string} subreddit - The subreddit to post in.
- * @param {string} title - The title of the post.
- * @param {string} url - The URL to submit.
- * @param {string} flairId - The flair template ID to apply.
- * @param {string} flairText - Optional flair text (if allowed by the subreddit).
- * @returns {Promise<object|null>} A Promise resolving to the submission object or null if submission fails.
- */
-async function submitLinkWithFlair(redditClient, subreddit, title, url, flairId, flairText) {
-    try {
-        const subredditObj = redditClient.getSubreddit(subreddit);
-
-        // Prepare the options for the submission
-        const options: any = {
-            title: title,
-            url: url,
-            resubmit: false,
-        };
-
-        if (flairId) options.flairId = flairId;
-        if (flairText) options.flairText = flairText;
-        // Submit the link with flair
-        const mySubmission = await subredditObj.submitLink(options);
-
-        console.log(`Post submitted successfully: ${mySubmission.url}`);
-        return mySubmission;
-    } catch (error) {
-        console.error('Error submitting post with flair:', error);
-        return null;
-    }
-}
-
-
-// Called by the RedditClient class
-async function fetchScheduledPosts(client: VercelPoolClient) {
-
-    try {
-        console.log('Fetch Today Posts for /r/FreeEBOOKS/ ...');
-        const result = await client.sql`
-            SELECT 
-                posts.*,
-                books.link AS book_link
-            FROM posts
-            LEFT JOIN books ON posts.book_id = books.id
-            WHERE posts.status = 'scheduled'
-                AND posts.platform LIKE '%/r/FreeEBOOKS/%'
-                AND DATE(posts.published_date) = CURRENT_DATE;
-        `;
-        return result.rows;
-    } catch (error) {
-        if (error instanceof Error) {
-            console.error('   Error fetching scheduled posts for Today:', error.message);
-        } else {
-            console.error('   Unkown error fetching scheduled posts for Today:', error);
-        }
-        throw error; // Re-throw the error after logging
-    }
-}
-
-// TODO: This function also exists in app/cron/route.ts and should be moved to a shared module
-// Update post status after successful publishing
-async function updatePostStatus(client, postId: number) {
-    const query = `
-    UPDATE posts
-    SET status = 'published'
-    WHERE id = $1
-  `;
-    const values = [postId];
-
-    try {
-        await client.query(query, values);
-        console.log(`Post ID ${postId} marked as published.`);
-    } catch (error) {
-        if (error instanceof Error) {
-            console.error(`Error updating post status for ID ${postId}:`, error.message);
-        } else {
-            console.error(`Unpextected Error updating post status for ID ${postId}:`, error);
-        }
-        throw error; // Re-throw the error after logging         
-
     }
 }
