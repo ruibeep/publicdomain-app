@@ -102,8 +102,12 @@ export class RedditClient extends BaseSocialMediaClient implements SocialMediaCl
 
             for (const post of scheduledPosts) {
                 try {
+                    const utmParams = 'utm_source=reddit.com&utm_medium=referral&utm_campaign=FreeEBOOKS';
+                    const expandedLink = post.book_link.includes('?') 
+                        ? `${post.book_link}&${utmParams}` 
+                        : `${post.book_link}?${utmParams}`;
 
-                    await this.submitLinkWithFlair(this.redditApi, 'FreeEBOOKS', post.text, post.book_link, 'a0931564-ffaf-11e2-9318-12313b0cf20e', '');
+                    await this.submitLinkWithFlair(this.redditApi, 'FreeEBOOKS', post.text, expandedLink, 'a0931564-ffaf-11e2-9318-12313b0cf20e', '');
                     await this.updatePostStatus(client, post.id);
                     console.log(`Reddit Link \"${post.text}\" published successfully.`);
                 } catch (error) {

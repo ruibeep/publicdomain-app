@@ -1,248 +1,58 @@
 const books = [
-    {
-        cover: null,
-        title: 'The Great Gatsby',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-great-gatsby',
-        author_id: 1
-    },
-    {
-        cover: null,
-        title: 'Pride & Prejudice',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/pride-prejudice',
-        author_id: 2
-    },
-    {
-        cover: null,
-        title: 'Romeo and Juliet',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/romeo-and-juliet',
-        author_id: 3
-    },
-    {
-        cover: null,
-        title: 'Little Women',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/little-women',
-        author_id: 4
-    },
-    {
-        cover: null,
-        title: 'Jane Eyre',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/jane-eyre',
-        author_id: 5
-    },
-    {
-        cover: null,
-        title: 'Wuthering Heights',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/wuthering-heights',
-        author_id: 6
-    },
-    {
-        cover: null,
-        title: 'Frankenstein',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/frankenstein',
-        author_id: 7
-    },
-    {
-        cover: null,
-        title: 'The Picture of Dorian Gray',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-picture-of-dorian-gray',
-        author_id: 8
-    },
-    {
-        cover: null,
-        title: 'The Adventures of Huckleberry Finn',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-adventures-of-huckleberry-finn',
-        author_id: 9
-    },
-    {
-        cover: null,
-        title: 'Dracula',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/dracula',
-        author_id: 10
-    },
-    {
-        cover: null,
-        title: 'The Odyssey',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-odyssey',
-        author_id: 11
-    },
-    {
-        cover: null,
-        title: 'Anne of Green Gables',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/anne-of-green-gables',
-        author_id: 12
-    },
-    {
-        cover: null,
-        title: 'A Tale of Two Cities',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/a-tale-of-two-cities',
-        author_id: 13
-    },
-    {
-        cover: null,
-        title: 'The Count of Monte Cristo',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-count-of-monte-cristo',
-        author_id: 14
-    },
-    {
-        cover: null,
-        title: 'Crime and Punishment',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/crime-and-punishment',
-        author_id: 15
-    },
-    {
-        cover: null,
-        title: 'Emma',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/emma',
-        author_id: 2
-    },
-    {
-        cover: null,
-        title: 'Anna Karenina',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/anna-karenina',
-        author_id: 16
-    },
-    {
-        cover: null,
-        title: 'Les Misérables',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/ebooks/les-misérables',
-        author_id: 17
-    },
-    {
-        cover: null,
-        title: "Alice's Adventures in Wonderland",
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/alice-s-adventures-in-wonderland',
-        author_id: 18
-    },
-    {
-        cover: null,
-        title: 'Moby-Dick',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/moby-dick',
-        author_id: 19
-    },
-    {
-        cover: null,
-        title: 'The Art of War',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-art-of-war',
-        author_id: 20
-    },
-    {
-        cover: null,
-        title: 'The Wonderful Wizard of Oz',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/wizard-of-oz',
-        author_id: 21
-    },
-    {
-        cover: null,
-        title: 'The Iliad',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-iliad',
-        author_id: 11
-    },
-    {
-        cover: null,
-        title: 'The Adventures of Sherlock Holmes',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-adventures-of-sherlock-holmes',
-        author_id: 22
-    },
-    {
-        cover: null,
-        title: 'The Call of the Wild',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-call-of-the-wild-novel-by-jack-london',
-        author_id: 23
-    },
-    {
-        cover: null,
-        title: 'Peter Pan',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/peter-pan',
-        author_id: 24
-    },
-    {
-        cover: null,
-        title: 'Meditations',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/meditations',
-        author_id: 25
-    },
-    {
-        cover: null,
-        title: 'The Strange Case of Dr Jekyll and Mr Hyde',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-strange-case-of-dr-jekyll-and-mr-hyde',
-        author_id: 26
-    },
-    {
-        cover: null,
-        title: "Le Morte d'Arthur",
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/le-morte-d-arthur',
-        author_id: 27
-    },
-    {
-        cover: null,
-        title: 'The Autobiography of Benjamin Franklin',
-        files: null,
-        language: 'en',
-        link: 'https://publicdomainlibrary.org/en/books/the-autobiography-of-benjamin-franklin',
-        author_id: 28
-    }
-
+    {cover: null, title: 'The Great Gatsby', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/books/the-great-gatsby', author_id: 1},
+    {cover: null, title: 'Pride & Prejudice', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/books/pride-prejudice', author_id: 2},
+    {cover: null, title: 'Romeo and Juliet', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/books/romeo-and-juliet', author_id: 3},
+    {cover: null, title: 'Little Women', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/books/little-women', author_id: 4},
+    {cover: null,title: 'Jane Eyre',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/jane-eyre',author_id: 5},
+    {cover: null,title: 'Wuthering Heights',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/wuthering-heights',author_id: 6},
+    {cover: null,title: 'Frankenstein',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/frankenstein',author_id: 7},
+    {cover: null,title: 'The Picture of Dorian Gray',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-picture-of-dorian-gray',author_id: 8},
+    {cover: null,title: 'The Adventures of Huckleberry Finn',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-adventures-of-huckleberry-finn',author_id: 9},
+    {cover: null,title: 'Dracula',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/dracula',author_id: 10},
+    {cover: null,title: 'The Odyssey',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-odyssey',author_id: 11},
+    {cover: null,title: 'Anne of Green Gables',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/anne-of-green-gables',author_id: 12},
+    {cover: null,title: 'A Tale of Two Cities',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/a-tale-of-two-cities',author_id: 13},
+    {cover: null,title: 'The Count of Monte Cristo',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-count-of-monte-cristo',author_id: 14},
+    {cover: null,title: 'Crime and Punishment',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/crime-and-punishment',author_id: 15},
+    {cover: null,title: 'Emma',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/emma',author_id: 2},
+    {cover: null,title: 'Anna Karenina',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/anna-karenina',author_id: 16},
+    {cover: null,title: 'Les Misérables',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/ebooks/les-misérables',author_id: 17},
+    {cover: null,title: "Alice's Adventures in Wonderland",files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/alice-s-adventures-in-wonderland',author_id: 18},
+    {cover: null,title: 'Moby-Dick',    files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/moby-dick',author_id: 19},
+    {cover: null,title: 'The Art of War',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-art-of-war',author_id: 20},
+    {cover: null,title: 'The Wonderful Wizard of Oz',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/wizard-of-oz',author_id: 21},
+    {cover: null,title: 'The Iliad',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-iliad',author_id: 11},
+    {cover: null,title: 'The Adventures of Sherlock Holmes',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-adventures-of-sherlock-holmes',author_id: 22},
+    {cover: null,title: 'The Call of the Wild',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-call-of-the-wild-novel-by-jack-london',author_id: 23},
+    {cover: null,title: 'Peter Pan',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/peter-pan',author_id: 24},
+    {cover: null,title: 'Meditations',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/meditations',author_id: 25},
+    {cover: null,title: 'The Strange Case of Dr Jekyll and Mr Hyde',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-strange-case-of-dr-jekyll-and-mr-hyde',author_id: 26},
+    {cover: null,title: "Le Morte d'Arthur",files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/le-morte-d-arthur',author_id: 27},
+    {cover: null,title: 'The Autobiography of Benjamin Franklin',files: null,language: 'en',link: 'https://publicdomainlibrary.org/en/books/the-autobiography-of-benjamin-franklin',author_id: 28},
+    {cover: 'https://drive.usercontent.google.com/download?id=1LH-6FVh2cQd--R28uvkohZ174UiOxJKp', title: 'Middlemarch', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/middlemarch', author_id: 29},
+    {cover: 'https://drive.usercontent.google.com/download?id=1-QXqt0spZ3JqQ6vF_sgODrVifWbM1mnZ', title: 'A Room with a View', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/a-room-with-a-view',author_id: 30},
+    {cover: 'https://drive.usercontent.google.com/download?id=1282CifDV6mt9Unn7rXPbuIDSI0i6PuLC', title: 'The Blue Castle', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/a-room-with-a-view',author_id: 12},
+    {cover: 'https://drive.usercontent.google.com/download?id=15DXQlNJ_Vwc1RI12tpfoHb0k5224STvj', title: 'The Enchanted April', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/the-enchanted-april',author_id: 31},
+    {cover: 'https://drive.usercontent.google.com/download?id=1WQk3B4Kg6Fs0nRLAZp3FH_tvrndoTa7O', title: 'Cranford', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/cranford',author_id: 32},
+    {cover: 'https://drive.usercontent.google.com/download?id=1mpg-iWRm6xz-M952o2viU-ShGgkHgiM-', title: 'History of Tom Jones, a Foundling', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/history-of-tom-jones-a-foundling',author_id: 33},
+    {cover: 'https://drive.usercontent.google.com/download?id=1W99e2F3WReRL5YVY-RHc5qsqPuQjCPps', title: 'Twenty years after', files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/twenty-years-after',author_id: 14},
+    {cover: 'https://drive.usercontent.google.com/download?id=1zWShlSZM6h7R0W-_XncsKwoED130EYLf', title: "A Doll's House", files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/a-doll-s-house',author_id: 34},
+    {cover: 'https://drive.usercontent.google.com/download?id=172c6h9u7M0OoGfIO5IowbAk7VIUFKGRc', title: "A Christmas Carol", files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/a-christmas-carol',author_id: 13},
+    {cover: 'https://drive.usercontent.google.com/download?id=1nDOITrsQEofQkK8A1kBuNPmRKkgvx-72', title: "The Scarlet Letter", files: null, language: 'en', link: 'https://publicdomainlibrary.org/en/ebooks/the-scarlet-letter',author_id: 35}
 ];
 
-const authors = [
+const authors = [/*
+    { name: 'George Eliot',        image: 'test', birth: '1819-11-22', death: '1880-12-22', description: null, link: 'https://publicdomainlibrary.org/en/authors/george-eliot-mary-ann-evans'},
+    { name: 'E. M. Forster',       image: 'test', birth: '1879-01-01', death: '1970-06-07', description: null, link: 'https://publicdomainlibrary.org/en/authors/e-m-forster'},
+    { name: 'Elizabeth Von Arnim', image: 'test', birth: '1866-08-31', death: '1941-02-09', description: null, link: 'https://publicdomainlibrary.org/en/authors/elizabeth-von-arnim'},
+    { name: 'Elizabeth Gaskell',   image: 'test', birth: '1810-09-29', death: '1865-11-12', description: null, link: 'https://publicdomainlibrary.org/en/authors/elizabeth-gaskell'},
+    { name: 'Henry Fielding',      image: 'test', birth: '1707-04-22', death: '1757-10-08', description: null, link: 'https://publicdomainlibrary.org/en/authors/henry-fielding'},
+    { name: 'Henrik Ibsen',        image: 'test', birth: '1828-03-20', death: '1906-05-23', description: null, link: 'https://publicdomainlibrary.org/en/authors/henrik-ibsen'},*/
+    { name: 'Nathaniel Hawthorne', image: 'test', birth: '1804-07-04', death: '1864-05-19', description: null, link: 'https://publicdomainlibrary.org/en/authors/nathaniel-hawthorne'}
+];
+
+
+const authorsOld = [
     {
         name: 'F. Scott Fitzgerald',
         image: 'test',
@@ -470,6 +280,7 @@ const authors = [
 ];
 
 const quotes = [
+    /*
     // 1 The Great Gatsby
     { book_id: 1, popularity: 12544, quote: "So we beat on, boats against the current, borne back ceaselessly into the past." },
     { book_id: 1, popularity: 10566, quote: "I hope she'll be a fool -- that's the best thing a girl can be in this world, a beautiful little fool." },
@@ -785,6 +596,132 @@ const quotes = [
     { book_id: 24, popularity: 68, quote: "A sandwich and a cup of coffee, and then off to violin-land, where all is sweetness and delicacy and harmony." },
     { book_id: 24, popularity: 61, quote: "When a doctor does go wrong he is the first of criminals." },
     { book_id: 24, popularity: 60, quote: "It's a wicked world, and when a clever man turns his brain to crime it is the worst of all." }
-];
+    */
+    //31	Middlemarch
+    { book_id: 31, popularity: 843, quote: "It is a narrow mind which cannot look at a subject from various points of view." },
+    { book_id: 31, popularity: 781, quote: "But the effect of her being on those around her was incalculably diffusive: for the growing good of the world is partly dependent on unhistoric acts." },
+    { book_id: 31, popularity: 522, quote: "It is always fatal to have music or poetry interrupted." },
+    { book_id: 31, popularity: 496, quote: "If we had a keen vision and feeling of all ordinary human life, it would be like hearing the grass grow and the squirrel’s heart beat." },
+    { book_id: 31, popularity: 476, quote: "And, of course, men know best about everything, except what women know better." },
+    { book_id: 31, popularity: 476, quote: "We mortals, men and women, devour many a disappointment between breakfast and dinner-time." },
+    { book_id: 31, popularity: 333, quote: "..for the growing good of the world is partly dependent on unhistoric acts." },
+    { book_id: 31, popularity: 298, quote: "What loneliness is more lonely than distrust?" },
+    { book_id: 31, popularity: 295, quote: "But what we call our despair is often only the painful eagerness of unfed hope." },
+    { book_id: 31, popularity: 219, quote: "People are almost always better than their neighbors think they are." },
+    { book_id: 31, popularity: 215, quote: "And certainly, the mistakes that we male and female mortals make when we have our own way might fairly raise some wonder that we are so fond of it." },
+    { book_id: 31, popularity: 193, quote: "One can begin so many things with a new person! - even begin to be a better man." },
+    { book_id: 31, popularity: 189, quote: "To be a poet is to have a soul so quick to discern, that no shade of quality escapes it." },
+    { book_id: 31, popularity: 173, quote: "Our deeds still travel with us from afar/And what we have been makes us what we are." },
+    //32	A Room with a View
+    { book_id: 32, popularity: 4435, quote: "It isn't possible to love and part. You will wish that it was. You can transmute love, ignore it, muddle it, but you can never pull it out of you." },
+    { book_id: 32, popularity: 616, quote: "We cast a shadow on something wherever we stand, and it is no good moving from place to place to save things; because the shadow always follows." },
+    { book_id: 32, popularity: 437, quote: "When I think of what life is, and how seldom love is answered by love; it is one of the moments for which the world was made." },
+    { book_id: 32, popularity: 406, quote: "Life is easy to chronicle, but bewildering to practice." },
+    { book_id: 32, popularity: 343, quote: "This desire to govern a woman—it lies very deep, and men and women must fight it together." },
+    { book_id: 32, popularity: 301, quote: "Let yourself go. Pull out from the depths those thoughts that you do not understand, and spread them out in the sunlight and know the meaning of them." },
+    { book_id: 32, popularity: 252, quote: "Mistrust all enterprises that require new clothes." },
+    { book_id: 32, popularity: 233, quote: "'Life' wrote a friend of mine, 'is a public performance on the violin, in which you must learn the instrument as you go along.'" },
+    { book_id: 32, popularity: 212, quote: "'It is fate that I am here,' George persisted, 'but you can call it Italy if it makes you less unhappy.'" },
+    { book_id: 32, popularity: 168, quote: "It is so difficult - at least, I find it difficult - to understand people who speak the truth." },
+    { book_id: 32, popularity: 160, quote: "By the side of the everlasting Why there is a Yes--a transitory Yes if you like, but a Yes." },
+    { book_id: 32, popularity: 143, quote: "'I taught him,' he quavered, 'to trust in love. I said: when love comes, that is reality.'" },
+    { book_id: 32, popularity: 129, quote: "She stopped and leant her elbows against the parapet of the embankment. He did likewise. There is at times a magic in identity of position." },
+    { book_id: 32, popularity: 118, quote: "'When we were only acquaintances, you let me be myself, but now you're always protecting me... I won't be protected. I will choose for myself what is ladylike and right.'" },
+    //33	The Blue Castle
+    { book_id: 33, popularity: 490, quote: "If you can sit in silence with a person for half an hour and yet be entirely comfortable, you and that person can be friends." },
+    { book_id: 33, popularity: 274, quote: "Fear is the original sin. Almost all of the evil in the world has its origin in the fact that some one is afraid of something." },
+    { book_id: 33, popularity: 151, quote: "Isn't it better to have your heart broken than to have it wither up? Before it could be broken it must have felt something splendid." },
+    { book_id: 33, popularity: 118, quote: "It was three o'clock in the morning - the wisest and most accursed hour of the clock. But sometimes it sets us free." },
+    { book_id: 33, popularity: 100, quote: "Love you! Girl, you're in the very core of my heart. I hold you there like a jewel." },
+    { book_id: 33, popularity: 99, quote: "That's all the freedom we can hope for - the freedom to choose our prison." },
+    { book_id: 33, popularity: 96, quote: "Rebellion flamed up in her soul as the dark hours passed by - not because she had no future but because she had no past." },
+    { book_id: 33, popularity: 84, quote: "We don't know where we're going, but isn't it fun to go?" },
+    { book_id: 33, popularity: 79, quote: "Just to love! She did not ask to be loved. It was rapture enough just to sit there beside him in silence, alone in the summer night." },
+    { book_id: 33, popularity: 79, quote: "There is no such thing as freedom on earth. Only different kinds of bondages." },
+    { book_id: 33, popularity: 77, quote: "The greatest happiness [...] is to sneeze when you want to." },
+    { book_id: 33, popularity: 74, quote: "But now she loved winter. Winter was beautiful 'up back' - almost intolerably beautiful." },
+    { book_id: 33, popularity: 61, quote: "Who would endure life if it were not for the hope of death?" },
+    //34	The Enchanted April
+    { book_id: 34, popularity: 89, quote: "Beauty made you love, and love made you beautiful." },
+    { book_id: 34, popularity: 42, quote: "...Why, it would really be being unselfish to go away and be happy for a little, because we would come back so much nicer." },
+    { book_id: 34, popularity: 37, quote: "It is true she liked him most when he wasn't there, but then she usually liked everybody most when they weren't there." },
+    { book_id: 34, popularity: 35, quote: "How they had dreamed together, he and she... how they had planned, and laughed, and loved. They had lived for a while in the very heart of poetry." },
+    { book_id: 34, popularity: 32, quote: "Now she had taken off her goodness and left it behind her like a heap of rain-sodden clothes, and she only felt joy." },
+    { book_id: 34, popularity: 31, quote: "I'm sure it's wrong to go on being good for too long, till one gets miserable. And I can see you've been good for years and years, because you look so unhappy." },
+    { book_id: 34, popularity: 31, quote: "How passionately she longed to be important to somebody again - not important on platforms, not important as an asset in an organisation, but privately important, just to one other person." },
+    { book_id: 34, popularity: 26, quote: "This was the simple happiness of complete harmony with her surroundings, the happiness that asks for nothing, that just accepts, just breathes, just is." },
+    { book_id: 34, popularity: 25, quote: "All the radiance of April in Italy lay gathered together at her feet. The sun poured in on her. The sea lay asleep in it, hardly stirring." },
+    { book_id: 34, popularity: 22, quote: "In bed by herself: adorable condition." },
+    { book_id: 34, popularity: 21, quote: "Reading was very important; the proper exercise and development of one's mind was a paramount duty." },
+    //35	Cranford
+    { book_id: 35, popularity: 89, quote: "Beauty made you love, and love made you beautiful." },
+    { book_id: 35, popularity: 42, quote: "...Why, it would really be being unselfish to go away and be happy for a little, because we would come back so much nicer." },
+    { book_id: 35, popularity: 37, quote: "It is true she liked him most when he wasn't there, but then she usually liked everybody most when they weren't there." },
+    { book_id: 35, popularity: 35, quote: "How they had dreamed together, he and she... how they had planned, and laughed, and loved. They had lived for a while in the very heart of poetry." },
+    { book_id: 35, popularity: 32, quote: "Now she had taken off her goodness and left it behind her like a heap of rain-sodden clothes, and she only felt joy." },
+    { book_id: 35, popularity: 31, quote: "I'm sure it's wrong to go on being good for too long, till one gets miserable. And I can see you've been good for years and years, because you look so unhappy." },
+    { book_id: 35, popularity: 31, quote: "How passionately she longed to be important to somebody again - not important on platforms, not important as an asset in an organisation, but privately important, just to one other person." },
+    { book_id: 35, popularity: 26, quote: "This was the simple happiness of complete harmony with her surroundings, the happiness that asks for nothing, that just accepts, just breathes, just is." },
+    { book_id: 35, popularity: 25, quote: "All the radiance of April in Italy lay gathered together at her feet. The sun poured in on her. The sea lay asleep in it, hardly stirring." },
+    { book_id: 35, popularity: 22, quote: "In bed by herself: adorable condition." },
+    { book_id: 35, popularity: 21, quote: "Reading was very important; the proper exercise and development of one's mind was a paramount duty." },
+    //36	History of Tom Jones, a Foundling
+    { book_id: 36, popularity: 86, quote: "No one hath seen beauty in its highest lustre who hath never seen it in distress." },
+    { book_id: 36, popularity: 47, quote: "For I hope my Friends will pardon me, when I declare, I know none of them without a Fault; and I should be sorry if I could imagine, I had any Friend who could not see mine." },
+    { book_id: 36, popularity: 33, quote: "It is much easier to make good men wise, than to make bad men good." },
+    { book_id: 36, popularity: 19, quote: "Reader, I think proper, before we proceed any further together, to acquaint thee that I intend to digress, through this whole history." },
+    { book_id: 36, popularity: 18, quote: "A good countenance is a letter of recommendation." },
+    { book_id: 36, popularity: 18, quote: "Men who are ill-natured and quarrelsome when drunk are very worthy persons when sober." },
+    { book_id: 36, popularity: 14, quote: "There are a set of religious, or rather moral writers, who teach that virtue is the certain road to happiness, and vice to misery, in this world." },
+    { book_id: 36, popularity: 13, quote: "And here, I believe, the wit is generally misunderstood." },
+    { book_id: 36, popularity: 13, quote: "To see a Woman you love in Distress; to be unable to relieve her, and at the same Time to reflect that you have brought her into this Situation, is, perhaps, a Curse." },
+    { book_id: 36, popularity: 10, quote: "An author ought to consider himself, not as a gentleman who gives a private or eleemosynary treat, but rather as one who keeps a public ordinary, at which all persons are welcome for their money." },
+    { book_id: 36, popularity: 10, quote: "The worst of men generally have the words rogue and villain most in their mouths." },
+    { book_id: 36, popularity: 9, quote: "It is not enough that your designs, nay that your actions, are intrinsically good, you must take care they shall appear so." },
+    { book_id: 36, popularity: 8, quote: "Your religion...serves you only for an excuse for your faults, but is no incentive to your virtue." },
+    //37	Twenty years after
+    { book_id: 37, popularity: 20, quote: "Now an enemy is never so near and consequently so threatening, as when he has completely disappeared." },
+    { book_id: 37, popularity: 18, quote: "His fair landlady was in despair. She would most willingly have made M. d'Artagnan her husband--such a handsome man, and such a fierce mustache!" },
+    { book_id: 37, popularity: 17, quote: "I will follow him to hell, and that is saying not a little, as I believe him entirely capable of the descent." },
+    { book_id: 37, popularity: 10, quote: "Instruction is good for a child; but example is worth more." },
+    { book_id: 37, popularity: 1, quote: "But imagination has the angel's or lightning's wing; it clears seas in which we should certainly have been shipwrecked; it removes the darkness in which our illusions were lost, the precipice where our happiness was engulfed." },
+    //38	A Doll's House
+    { book_id: 38, popularity: 367, quote: "You have never loved me. You have only thought it pleasant to be in love with me." },
+    { book_id: 38, popularity: 236, quote: "My duty to myself." },
+    { book_id: 38, popularity: 189, quote: "You see, there are some people that one loves, and others that perhaps one would rather be with." },
+    { book_id: 38, popularity: 187, quote: "I must make up my mind which is right - society or I." },
+    { book_id: 38, popularity: 164, quote: "Helmer: I would gladly work night and day for you. Nora- bear sorrow and want for your sake. But no man would sacrifice his honor for the one he loves. Nora: It is a thing hundreds of thousands of women have done." },
+    { book_id: 38, popularity: 120, quote: "I believe that before all else I am a reasonable human being, just as you are--or, at all events, that I must try and become one." },
+    { book_id: 38, popularity: 113, quote: "But no man would sacrifice his honor for the one he loves. It is a thing hundreds of thousands of women have done." },
+    { book_id: 38, popularity: 103, quote: "I believe that before anything else I'm a human being -- just as much as you are... or at any rate I shall try to become one." },
+    { book_id: 38, popularity: 76, quote: "I must stand on my own two feet if I'm to get to know myself and the world outside. That's why I can't stay here with you any longer." },
+    { book_id: 38, popularity: 68, quote: "When you've sold yourself once for the sake of others, you don't do it second time." },
+    //39	A Christmas Carol
+    { book_id: 39, popularity: 5593, quote: "There is nothing in the world so irresistibly contagious as laughter and good humor." },
+    { book_id: 39, popularity: 1417, quote: "It is a fair, even-handed, noble adjustment of things, that while there is infection in disease and sorrow, there is nothing in the world so irresistibly contagious as laughter and good humour." },
+    { book_id: 39, popularity: 651, quote: "'You are fettered,' said Scrooge, trembling. 'Tell me why?' 'I wear the chain I forged in life,' replied the Ghost." },
+    { book_id: 39, popularity: 483, quote: "I will honour Christmas in my heart, and try to keep it all the year. I will live in the Past, the Present, and the Future." },
+    { book_id: 39, popularity: 422, quote: "No space of regret can make amends for one life's opportunity misused." },
+    { book_id: 39, popularity: 404, quote: "For it is good to be children sometimes, and never better than at Christmas, when its mighty Founder was a child Himself." },
+    { book_id: 39, popularity: 286, quote: "'You may be an undigested bit of beef, a blot of mustard, a crumb of cheese, a fragment of underdone potato. There's more of gravy than of grave about you, whatever you are!'" },
+    { book_id: 39, popularity: 231, quote: "'There are many things from which I might have derived good, by which I have not profited, I dare say,' returned the nephew." },
+    { book_id: 39, popularity: 224, quote: "'But you were always a good man of business, Jacob,' faltered Scrooge." },
+    { book_id: 39, popularity: 210, quote: "'They are Man's and they cling to me, appealing from their fathers. This boy is Ignorance and this girl is Want. Beware them both.'" },
+    { book_id: 39, popularity: 207, quote: "'There are some upon this earth of yours who lay claim to know us, and who do their deeds of passion, pride, ill-will, hatred, envy, bigotry, and selfishness in our name.'" },
+    //40	The Scarlet Letter
+    { book_id: 40, popularity: 2549, quote: "We dream in our waking moments, and walk in our sleep." },
+    { book_id: 40, popularity: 1000, quote: "No man, for any considerable period, can wear one face to himself and another to the multitude, without finally getting bewildered as to which may be the true." },
+    { book_id: 40, popularity: 681, quote: "She had not known the weight until she felt the freedom." },
+    { book_id: 40, popularity: 382, quote: "Love, whether newly born or aroused from a deathlike slumber, must always create sunshine, filling the heart so full of radiance, that it overflows upon the outward world." },
+    { book_id: 40, popularity: 260, quote: "It is a curious subject of observation and inquiry, whether hatred and love be not the same thing at bottom." },
+    { book_id: 40, popularity: 252, quote: "She could no longer borrow from the future to ease her present grief." },
+    { book_id: 40, popularity: 200, quote: "I have laughed, in bitterness and agony of heart, at the contrast between what I seem and what I am!" },
+    { book_id: 40, popularity: 178, quote: "Let men tremble to win the hand of woman, unless they win along with it the utmost passion of her heart!" },
+    { book_id: 40, popularity: 161, quote: "She wanted—what some people want throughout life—a grief that should deeply touch her, and thus humanize and make her capable of sympathy." },
+    { book_id: 40, popularity: 144, quote: "It is to the credit of human nature, that, except where its selfishness is brought into play, it loves more readily than it hates." },
+    { book_id: 40, popularity: 128, quote: "In all her intercourse with society, however, there was nothing that made her feel as if she belonged to it." },
+    { book_id: 40, popularity: 126, quote: "She had wandered, without rule or guidance, into a moral wilderness..." },
+    { book_id: 40, popularity: 124, quote: "We men of study, whose heads are in our books, have need to be straightly looked after! We dream in our waking moments, and walk in our sleep." }
+    ];
 
 export { authors, books, quotes };

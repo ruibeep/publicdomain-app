@@ -51,6 +51,10 @@ async function seedBooks() {
     );
   `;
 
+  books.map((book) => {
+    console.log(`Title: ${book.title}`);
+  });
+
   const insertedBoooks = await Promise.all(
     books.map(async (book) => {
       return client.sql`
@@ -147,9 +151,9 @@ async function seedPosts() {
 export async function GET() {
   try {
     await client.sql`BEGIN`;
-    await seedAuthors();
+    // await seedAuthors();
     // await seedBooks();
-    // await seedQuotes();
+    await seedQuotes();
     // await seedPosts();
     await client.sql`COMMIT`;
 
