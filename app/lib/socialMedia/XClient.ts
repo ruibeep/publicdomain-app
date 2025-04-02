@@ -224,5 +224,139 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
         }
         return Buffer.from(await response.arrayBuffer());
     }
+
+    async searchPosts(title: string, author: string) {
+      console.log(`🔍 Searching posts for title: "${title}" and author: "${author}"`);
+  
+      // Get last name (or full name if there's only one)
+      const authorParts = author.trim().split(/\s+/);
+      const authorNameToSearch = authorParts.length > 1 ? authorParts.at(-1) : author;
+  
+      // Construct Twitter search query
+      const query = `"${title}" "${authorNameToSearch}" -is:retweet lang:en`;
+  
+      // Calculate start and end time for "yesterday"
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+  
+      const startTime = new Date(yesterday.setHours(0, 0, 0, 0)).toISOString();
+      const endTime = new Date(yesterday.setHours(23, 59, 59, 999)).toISOString();
+  
+      console.log(`Query: ${query}`);
+      console.log(`From: ${startTime}`);
+      console.log(`To: ${endTime}`);
+  
+      try {
+          const results = await this.XApi.v2.search(query, {
+              start_time: startTime,
+              end_time: endTime,
+              max_results: 50,
+              'tweet.fields': ['created_at', 'author_id', 'text'],
+          });
+  
+          const tweets = results.tweets ?? [];
+          console.log(`✅ Found ${tweets.length} tweet(s).`);
+          return tweets;
+      } catch (error) {
+          if (error instanceof Error) {
+              console.error('❌ Error during tweet search:', error.message);
+          } else {
+              console.error('❌ Unexpected error:', error);
+          }
+          throw error;
+      }
+    }
+
+    async replyToPosts(
+      posts: { id: string; author_id: string }[],
+      link: string,
+      title: string,
+      author: string
+    ) {
+      const utmLink = `${link}?utm_source=t.co&utm_medium=referral&utm_campaign=x-replies`;
+      const message = `Download for free the ebook "${title}" by ${author}\n${utmLink}`;
+    
+      for (const post of posts) {
+        try {
+          console.log(`Replying to tweet ID ${post.id}...`);
+    
+          await this.XApi.v2.reply(message, post.id);
+    
+          console.log(`✅ Replied to tweet ID ${post.id}`);
+          // Optional: Add delay to avoid rate limiting
+          await new Promise(res => setTimeout(res, 3000)); // 3 second delay
+        } catch (error) {
+          if (error instanceof Error) {
+            console.error(`❌ Failed to reply to tweet ID ${post.id}:`, error.message);
+          } else {
+            console.error(`❌ Unknown error replying to tweet ID ${post.id}:`, error);
+          }
+        }
+      }
+    }
+
+    async replyToAllBookMentions(client: VercelPoolClient): Promise<void> {
+      console.log("📚 Fetching all books and authors...");
+    
+      const result = await client.sql`
+        SELECT b.title, b.link, a.name AS author
+        FROM books b
+        JOIN authors a ON b.author_id = a.id;
+      `;
+    
+      const books = result.rows;
+      // const books = result.rows.slice(1); // skips the first book
+      if (books.length === 0) {
+        console.log("⚠️ No books found in the database.");
+        return;
+      }
+    
+      let tweetsSent = 0;
+    
+      for (const { title, author, link } of books) {    
+        try {
+          console.log(`🔍 Processing "${title}" by ${author}`);
+    
+          const posts = await this.searchPosts(title, author);
+    
+          if (posts.length === 0) {
+            console.log(`   No tweets found for "${title}"`);
+          } else {
+            console.log(`💬 Found ${posts.length} tweets. Waiting 2 seconds before replying...`);
+            await new Promise(res => setTimeout(res, 2000));
+    
+            const remainingQuota = 100 - tweetsSent;
+            const postsToReply = posts.slice(0, remainingQuota).map(tweet => ({
+              id: tweet.id,
+              author_id: tweet.author_id ?? "", // fallback if missing
+            }));
+            
+            await this.replyToPosts(postsToReply, link, title, author);
+            tweetsSent += postsToReply.length;
+    
+            console.log(`📈 Total tweets sent: ${tweetsSent}/100`);
+            if (tweetsSent >= 100) {
+              console.log("🚫 Reached 100 tweets for the day. Stopping.");
+              break;
+            }            
+          }
+        } catch (error) {
+          if (error instanceof Error) {
+            console.error(`❌ Error processing "${title}" by ${author}:`, error.message);
+          } else {
+            console.error(`❌ Unexpected error processing "${title}":`, error);
+          }
+        }
+    
+        //console.log("⏳ Waiting 15 minutes before processing the next book...");
+        const nextBookTime = new Date(Date.now() + 15 * 60 * 1000);
+        console.log(`⏳ Waiting 15 minutes... next book will be processed at ${nextBookTime.toLocaleTimeString()}`);
+        await new Promise(res => setTimeout(res, 15 * 60 * 1000)); // 15 minutes
+      }
+    
+      console.log("✅ Finished replying to all book mentions.");
+    }
+    
 }
 

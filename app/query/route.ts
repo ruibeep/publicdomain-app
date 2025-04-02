@@ -153,7 +153,7 @@ export async function GET() {
     await client.sql`BEGIN`;
     // await seedAuthors();
     // await seedBooks();
-    await seedQuotes();
+    // await seedQuotes();
     // await seedPosts();
     await client.sql`COMMIT`;
 
