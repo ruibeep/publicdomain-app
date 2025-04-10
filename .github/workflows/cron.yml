@@ -1,0 +1,13 @@
+name: Quarter Hourly Cron Job
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  call-cron-endpoint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /cron/quarterHourly endpoint
+        run: |
+          curl -X POST http://app.publicdomainlibrary.org/cron/quarterHourly
