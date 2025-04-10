@@ -102,7 +102,15 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
    *  - Calls replyToAllBookMentions(books) to search & reply
    *  - Moves offset for next run
    */
-  public async quarterHourly(client: VercelPoolClient): Promise<void> {
+  public async quarterHourly(client: VercelPoolClient): Promise<{
+    repliesInLast24: number;
+    chunk: number;
+    offsetStart: number;
+    offsetEnd: number;
+    booksFound: number;
+    totalBooks: number;
+    message: string;
+  }> {
     // 0. Check how many replies in last 24 hours
     const countResult = await client.sql`
       SELECT COUNT(*) AS last24
@@ -110,38 +118,52 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
       WHERE replied_at >= NOW() - INTERVAL '24 hours'
     `;
     const repliesInLast24 = parseInt(countResult.rows[0].last24, 10);
-
+  
+    // Summary object we'll build up
+    const summary = {
+      repliesInLast24,
+      chunk: 0,
+      offsetStart: 0,
+      offsetEnd: 0,
+      booksFound: 0,
+      totalBooks: 0,
+      message: '',
+    };
+  
     if (repliesInLast24 >= 90) {
-      console.log(`🚫 Already made ${repliesInLast24} replies in last 24 hours, skipping...`);
-      return;
+      summary.message = `Already made ${repliesInLast24} replies in last 24 hours, skipping...`;
+      return summary;
     }
-
+  
     // 1. Check total books
     const totalRes = await client.sql`SELECT COUNT(*) AS total FROM books;`;
     const totalBooks = parseInt(totalRes.rows[0].total, 10);
+    summary.totalBooks = totalBooks;
+  
     if (totalBooks === 0) {
-      console.log("No books in DB. Aborting quarterHourly...");
-      return;
+      summary.message = 'No books in DB. Aborting quarterHourly...';
+      return summary;
     }
-
+  
     // 2. Check if hour changed
     const now = new Date();
-    const currentHour = now.getHours(); // local hour; or use getUTCHours()
+    const currentHour = now.getHours();
     const lastHour = await this.getCurrentBookSearchHour(client);
-
+  
     if (currentHour !== lastHour) {
-      console.log(`⏰ Hour changed from ${lastHour} to ${currentHour}. Resetting book_search_offset to 0.`);
       await this.setCurrentBookOffset(client, 0);
       await this.setCurrentBookSearchHour(client, currentHour);
+      summary.message = `Hour changed from ${lastHour} to ${currentHour}. Reset offset to 0. `;
     }
-
+  
     // 3. Determine how many books per run
     const chunk = Math.min(50, Math.ceil(totalBooks / 4));
-
+    summary.chunk = chunk;
+  
     // 4. Get current offset
-    const offset = await this.getCurrentBookOffset(client);
-    console.log(`quarterHourly: total=${totalBooks}, hour=${currentHour}, offset=${offset}, chunk=${chunk}`);
-
+    const offsetStart = await this.getCurrentBookOffset(client);
+    summary.offsetStart = offsetStart;
+  
     // 5. Fetch next chunk of books
     const booksResult = await client.sql`
       SELECT b.title, b.link, a.name AS author
@@ -149,30 +171,32 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
       JOIN authors a ON b.author_id = a.id
       ORDER BY b.id
       LIMIT ${chunk}
-      OFFSET ${offset}
+      OFFSET ${offsetStart}
     `;
-
-    // Cast the result rows to BookRow[]
     const books = booksResult.rows as BookRow[];
-
+    summary.booksFound = books.length;
+  
     if (!books.length) {
-      console.log("No books returned in this batch. Possibly near end of DB. Resetting offset to 0.");
+      // Possibly near end, reset offset
       await this.setCurrentBookOffset(client, 0);
-      return;
+      summary.message += `No books returned. Reset offset to 0.`;
+      return summary;
     }
-
-    // 6. Use the existing pipeline to search & reply
-    console.log(`Found ${books.length} books in this batch. Passing them to replyToAllBookMentions...`);
+  
+    // 6. Search & reply
     await this.replyToAllBookMentions(client, books);
-
+    summary.message += `Processed ${books.length} book(s). `;
+  
     // 7. Advance offset
-    let newOffset = offset + chunk;
+    let newOffset = offsetStart + chunk;
     if (newOffset >= totalBooks) {
-      newOffset = 0; // wrap
+      newOffset = 0;
     }
+    summary.offsetEnd = newOffset;
     await this.setCurrentBookOffset(client, newOffset);
-
-    console.log(`Done with quarterHourly. Offset is now ${newOffset}.`);
+  
+    summary.message += `Offset is now ${newOffset}. Done!`;
+    return summary;
   }
 
   /**

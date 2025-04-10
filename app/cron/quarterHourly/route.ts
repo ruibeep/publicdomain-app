@@ -48,21 +48,27 @@ async function publishScheduledPosts(platforms: string[], dbclient) {
 export async function GET(request: NextRequest) {
     const client = createSocialMediaClient('X');
     const databaseClient = await db.connect();
-
+  
     try {
-        console.time('⏱ Script runtime');
-        await client.quarterHourly(databaseClient);
-        console.timeEnd('⏱ Script runtime');
-        console.log(`⌚️Script finished at ${new Date().toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' })} Amsterdam time`);
-       
-        return Response.json({ success: true, message: 'Replied all posts.' });
+      console.time('⏱ Script runtime');
+      const summary = await client.quarterHourly(databaseClient);
+      console.timeEnd('⏱ Script runtime');
+      
+      const finishedAt = new Date().toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' });
+      console.log(`⌚️ Script finished at ${finishedAt} Amsterdam time`);
+      
+      return Response.json({
+        success: true,
+        finishedAt,
+        summary
+      });
     } catch (error) {
-        if (error instanceof Error) {
-            console.error('Error fetching posts:', error.message);
-            return Response.json({ success: false, message: error.message }, { status: 500 });
-        } else {
-            console.error('Unknown error fetching posts:', error);
-            return Response.json({ success: false, message: 'An unknown error occurred.' }, { status: 500 });
-        }
+      if (error instanceof Error) {
+        console.error('Error fetching posts:', error.message);
+        return Response.json({ success: false, message: error.message }, { status: 500 });
+      } else {
+        console.error('Unknown error fetching posts:', error);
+        return Response.json({ success: false, message: 'An unknown error occurred.' }, { status: 500 });
+      }
     }
-}
+  }
