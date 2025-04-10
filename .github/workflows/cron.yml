@@ -13,4 +13,4 @@ jobs:
       - name: Call the URL with authentication
         run: |
           echo "Calling endpoint at $(date)"
-          curl -v -H "Authorization: Bearer ${{ secrets.MY_SECRET_TOKEN }}" https://app.publicdomainlibrary.org/cron/quarterHourly/
+          curl -v -H "Authorization: Bearer ${{ secrets.MY_SECRET_TOKEN }}" https://app.publicdomainlibrary.org/cron/quarterHourly
