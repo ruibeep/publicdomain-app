@@ -2,32 +2,26 @@ import { VercelPoolClient } from "@vercel/postgres";
 import { BaseSocialMediaClient, SocialMediaClient } from "./SocialMediaClient";
 import { TwitterApi, TweetV2 } from 'twitter-api-v2';
 
-// Book rows from the DB
-type BookRow = {
-  title: string;
-  link: string;
-  author: string;
-};
-
-// Extended tweet type with custom fields
+// Extend TweetV2 to include your custom fields
 type EnrichedTweet = TweetV2 & {
-  author_id: string;  // guaranteed by expansions
-  username?: string;
-  name?: string;
-  followers: number;
+  // from Twitter
+  author_id: string;     // guaranteed by expansions
+  username?: string;     // assigned in search
+  name?: string;         // assigned in search
+  followers: number;     // assigned in search
+
+  // custom book fields
   book_title?: string;
   book_author?: string;
   book_link?: string;
 };
 
-// Summary returned by quarterHourly
-export interface QuarterHourlySummary {
-  repliesInThisRun: number;
-  repliesInLast24: number;
-  booksProcessed: number;
-  totalBooks: number;
-  errors: string[];
-}
+// Shape of rows returned by the SELECT query in quarterHourly
+type BookRow = {
+  title: string;
+  link: string;
+  author: string;
+};
 
 export class XClient extends BaseSocialMediaClient implements SocialMediaClient {
   protected platform = 'X';
@@ -35,6 +29,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
 
   constructor(apiConfig: { appKey: string; appSecret: string; accessToken: string; accessSecret: string }) {
     super();
+    // Initialize Twitter client with OAuth 1.0a credentials
     this.XApi = new TwitterApi({
       appKey: apiConfig.appKey,
       appSecret: apiConfig.appSecret,
@@ -43,61 +38,132 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
     });
   }
 
-  /* ------------------------------------------------------------------
-   * A) QUARTER-HOURLY: Return a summary with replies, errors, etc.
-   * ------------------------------------------------------------------ */
-  public async quarterHourly(client: VercelPoolClient): Promise<QuarterHourlySummary> {
-    // Build an initial summary
-    const summary: QuarterHourlySummary = {
-      repliesInThisRun: 0,
-      repliesInLast24: 0,
-      booksProcessed: 0,
-      totalBooks: 0,
-      errors: [],
-    };
+  /**
+   * ---------------------------------------------------------
+   *  A) HELPER FUNCTIONS (System Settings)
+   * ---------------------------------------------------------
+   */
+  private async getSystemSetting(client: VercelPoolClient, key: string): Promise<string | null> {
+    const result = await client.sql`
+      SELECT value 
+      FROM system_settings
+      WHERE key = ${key};
+    `;
+    if (!result.rows.length) return null;
+    return result.rows[0].value;
+  }
 
+  private async setSystemSetting(client: VercelPoolClient, key: string, value: string): Promise<void> {
+    // Insert or update
+    await client.sql`
+      INSERT INTO system_settings (key, value)
+      VALUES (${key}, ${value})
+      ON CONFLICT (key) DO UPDATE
+      SET value = EXCLUDED.value;
+    `;
+  }
+
+  // Manages the "hour" setting
+  private async getCurrentBookSearchHour(client: VercelPoolClient): Promise<number> {
+    const hourStr = await this.getSystemSetting(client, 'book_search_hour');
+    if (hourStr === null) {
+      // If missing, initialize to -1
+      await this.setSystemSetting(client, 'book_search_hour', '-1');
+      return -1;
+    }
+    return parseInt(hourStr, 10);
+  }
+
+  private async setCurrentBookSearchHour(client: VercelPoolClient, hour: number): Promise<void> {
+    await this.setSystemSetting(client, 'book_search_hour', hour.toString());
+  }
+
+  // Manages the "offset" setting
+  private async getCurrentBookOffset(client: VercelPoolClient): Promise<number> {
+    const offsetStr = await this.getSystemSetting(client, 'book_search_offset');
+    if (offsetStr === null) {
+      // If missing, initialize to 0
+      await this.setSystemSetting(client, 'book_search_offset', '0');
+      return 0;
+    }
+    return parseInt(offsetStr, 10);
+  }
+
+  private async setCurrentBookOffset(client: VercelPoolClient, newOffset: number): Promise<void> {
+    await this.setSystemSetting(client, 'book_search_offset', newOffset.toString());
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  B) QUARTER-HOURLY (Runs Every 15 Min)
+   * ---------------------------------------------------------
+   *  - Resets offset to 0 if hour changed
+   *  - Dynamically fetches chunk of books (up to 50)
+   *  - Calls replyToAllBookMentions(books) to search & reply
+   *  - Moves offset for next run
+   */
+  public async quarterHourly(client: VercelPoolClient): Promise<{
+    repliesInLast24: number;
+    chunk: number;
+    offsetStart: number;
+    offsetEnd: number;
+    booksFound: number;
+    totalBooks: number;
+    message: string;
+  }> {
     // 0. Check how many replies in last 24 hours
     const countResult = await client.sql`
       SELECT COUNT(*) AS last24
       FROM replies
       WHERE replied_at >= NOW() - INTERVAL '24 hours'
     `;
-    summary.repliesInLast24 = parseInt(countResult.rows[0].last24, 10);
-
-    if (summary.repliesInLast24 >= 90) {
-      // We skip if we already have 90+ replies
-      summary.errors.push(`Already made ${summary.repliesInLast24} replies in last 24 hours; skipping new replies.`);
+    const repliesInLast24 = parseInt(countResult.rows[0].last24, 10);
+  
+    // Summary object we'll build up
+    const summary = {
+      repliesInLast24,
+      chunk: 0,
+      offsetStart: 0,
+      offsetEnd: 0,
+      booksFound: 0,
+      totalBooks: 0,
+      message: '',
+    };
+  
+    if (repliesInLast24 >= 90) {
+      summary.message = `Already made ${repliesInLast24} replies in last 24 hours, skipping...`;
       return summary;
     }
-
+  
     // 1. Check total books
     const totalRes = await client.sql`SELECT COUNT(*) AS total FROM books;`;
     const totalBooks = parseInt(totalRes.rows[0].total, 10);
     summary.totalBooks = totalBooks;
-
+  
     if (totalBooks === 0) {
-      summary.errors.push("No books found. Aborting quarterHourly.");
+      summary.message = 'No books in DB. Aborting quarterHourly...';
       return summary;
     }
-
+  
     // 2. Check if hour changed
     const now = new Date();
     const currentHour = now.getHours();
     const lastHour = await this.getCurrentBookSearchHour(client);
-
+  
     if (currentHour !== lastHour) {
       await this.setCurrentBookOffset(client, 0);
       await this.setCurrentBookSearchHour(client, currentHour);
-      // Not necessarily an error — just log it
-      summary.errors.push(`Hour changed from ${lastHour} to ${currentHour}. Reset offset to 0.`);
+      summary.message = `Hour changed from ${lastHour} to ${currentHour}. Reset offset to 0. `;
     }
-
+  
     // 3. Determine how many books per run
     const chunk = Math.min(50, Math.ceil(totalBooks / 4));
-
+    summary.chunk = chunk;
+  
     // 4. Get current offset
-    const offset = await this.getCurrentBookOffset(client);
-
+    const offsetStart = await this.getCurrentBookOffset(client);
+    summary.offsetStart = offsetStart;
+  
     // 5. Fetch next chunk of books
     const booksResult = await client.sql`
       SELECT b.title, b.link, a.name AS author
@@ -105,321 +171,41 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
       JOIN authors a ON b.author_id = a.id
       ORDER BY b.id
       LIMIT ${chunk}
-      OFFSET ${offset}
+      OFFSET ${offsetStart}
     `;
     const books = booksResult.rows as BookRow[];
-
+    summary.booksFound = books.length;
+  
     if (!books.length) {
-      // near end, reset offset
+      // Possibly near end, reset offset
       await this.setCurrentBookOffset(client, 0);
-      summary.errors.push("No books returned. Possibly end of DB; reset offset to 0.");
+      summary.message += `No books returned. Reset offset to 0.`;
       return summary;
     }
-
-    // 6. Use the pipeline to search & reply. We'll get partial info from it.
-    try {
-      const runResult = await this.replyToAllBookMentions(client, books);
-      summary.booksProcessed = runResult.booksProcessed;
-      summary.repliesInThisRun = runResult.repliesMade;
-      // Merge any errors from runResult
-      summary.errors.push(...runResult.errors);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      summary.errors.push(`Error in replyToAllBookMentions: ${message}`);
-    }
-
+  
+    // 6. Search & reply
+    await this.replyToAllBookMentions(client, books);
+    summary.message += `Processed ${books.length} book(s). `;
+  
     // 7. Advance offset
-    let newOffset = offset + chunk;
+    let newOffset = offsetStart + chunk;
     if (newOffset >= totalBooks) {
       newOffset = 0;
     }
+    summary.offsetEnd = newOffset;
     await this.setCurrentBookOffset(client, newOffset);
-
+  
+    summary.message += `Offset is now ${newOffset}. Done!`;
     return summary;
   }
 
-  /* ------------------------------------------------------------------
-   * B) REPLY TO ALL BOOK MENTIONS: returns partial summary
-   * ------------------------------------------------------------------ */
-  private async replyToAllBookMentions(
-    client: VercelPoolClient,
-    books: BookRow[]
-  ): Promise<{
-    repliesMade: number;
-    booksProcessed: number;
-    errors: string[];
-  }> {
-    let repliesMade = 0;
-    const errors: string[] = [];
-
-    // total books processed is just the length of 'books'
-    const booksProcessed = books.length;
-
-    // 1. Gather all matching tweets for these books
-    const allPosts: EnrichedTweet[] = [];
-
-    for (const { title, author, link } of books) {
-      try {
-        const posts = await this.searchPosts(title, author);
-        const filteredPosts = this.filterSuspiciousUsernames(posts);
-
-        // Attach book metadata
-        const enriched = filteredPosts.map(tweet => ({
-          ...tweet,
-          book_title: title,
-          book_author: author,
-          book_link: link,
-        }));
-
-        allPosts.push(...enriched);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        errors.push(`Error searching "${title}" by "${author}": ${msg}`);
-      }
-    }
-
-    if (!allPosts.length) {
-      // No posts to process
-      return { repliesMade, booksProcessed, errors };
-    }
-
-    // 2. Remove users already replied to in last 30 days
-    let postsFromNewUsers: EnrichedTweet[] = [];
-    try {
-      postsFromNewUsers = await this.removePostsWithKnownUsers(allPosts, client);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      errors.push(`Error removing known users: ${msg}`);
-      // fallback: if error, just keep all
-      postsFromNewUsers = allPosts;
-    }
-
-    // 3. Select top 10
-    const topPosts = this.selectTopPosts(postsFromNewUsers);
-
-    // 4. Actually reply
-    for (const top of topPosts) {
-      const postData = postsFromNewUsers.find(p => p.id === top.id);
-      if (!postData) continue;
-
-      try {
-        // replyToPosts can return how many we replied to
-        const count = await this.replyToPosts(
-          [{ id: postData.id, author_id: postData.author_id }],
-          postData.book_link ?? '',
-          postData.book_title ?? '',
-          postData.book_author ?? '',
-          client
-        );
-        repliesMade += count;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`Error replying to tweet: ${msg}`);
-      }
-    }
-
-    return { repliesMade, booksProcessed, errors };
-  }
-
-  /* ------------------------------------------------------------------
-   * C) REPLYTOPOSTS: Return how many replies were successful
-   * ------------------------------------------------------------------ */
-  private async replyToPosts(
-    posts: { id: string; author_id: string }[],
-    link: string,
-    title: string,
-    author: string,
-    client: VercelPoolClient
-  ): Promise<number> {
-    let successCount = 0;
-    const utmLink = `${link}?utm_source=t.co&utm_medium=referral&utm_campaign=x-replies`;
-    const message = `Download for free the ebook "${title}" by ${author}\n${utmLink}`;
-
-    for (const post of posts) {
-      try {
-        // Attempt to reply
-        await this.XApi.v2.reply(message, post.id);
-        successCount++;
-
-        // Build post URL
-        const username = "UnknownUser"; // or fetch from your local data
-        const postUrl = `https://twitter.com/${username}/status/${post.id}`;
-
-        // Insert or update the replies table
-        await client.sql`
-          INSERT INTO replies (user_id, username, post_id, post_url, book_title)
-          VALUES (
-            ${post.author_id},
-            ${username},
-            ${post.id},
-            ${postUrl},
-            ${title}
-          )
-          ON CONFLICT (user_id)
-          DO UPDATE
-            SET
-              replied_at = now(),
-              username = EXCLUDED.username,
-              post_id = EXCLUDED.post_id,
-              post_url = EXCLUDED.post_url,
-              book_title = EXCLUDED.book_title
-        `;
-      } catch (error) {
-        // Throw to log the error in replyToAllBookMentions
-        throw error;
-      }
-    }
-    return successCount;
-  }
-
-  /* ------------------------------------------------------------------
-   * D) HELPER METHODS: Remove known users, search, filter, etc.
-   * ------------------------------------------------------------------ */
-  private async removePostsWithKnownUsers(
-    allPosts: EnrichedTweet[],
-    client: VercelPoolClient
-  ): Promise<EnrichedTweet[]> {
-    if (!allPosts.length) return [];
-
-    const uniqueUserIds = [...new Set(allPosts.map(post => post.author_id))];
-    if (!uniqueUserIds.length) return allPosts;
-
-    const placeholders = uniqueUserIds.map((_, i) => `$${i + 1}`).join(", ");
-    const query = `
-      SELECT user_id
-      FROM replies
-      WHERE user_id IN (${placeholders})
-        AND replied_at >= NOW() - INTERVAL '30 days'
-    `;
-    const result = await client.query(query, uniqueUserIds);
-    const knownUserIds = new Set(result.rows.map(row => row.user_id));
-
-    // Filter out posts from known users
-    return allPosts.filter(post => !knownUserIds.has(post.author_id));
-  }
-
-  // Searching posts, filtering suspicious usernames
-  async searchPosts(title: string, author: string): Promise<EnrichedTweet[]> {
-    const authorParts = author.trim().split(/\s+/);
-    const authorNameToSearch = authorParts.length > 1 ? authorParts.at(-1) : author;
-
-    const query = `"${title}" "${authorNameToSearch}" lang:en -is:retweet -is:reply -has:links`;
-
-    const now = new Date();
-    const end = new Date(now);
-    end.setUTCMinutes(0, 0, 0);
-    const start = new Date(end);
-    start.setUTCHours(end.getUTCHours() - 1);
-    const startTime = start.toISOString();
-    const endTime = end.toISOString();
-
-    const results = await this.XApi.v2.search(query, {
-      start_time: startTime,
-      end_time: endTime,
-      max_results: 50,
-      'tweet.fields': ['created_at', 'author_id', 'text', 'public_metrics'],
-      expansions: ['author_id'],
-      'user.fields': ['username', 'name', 'public_metrics'],
-    });
-
-    const tweets = results.tweets ?? [];
-    const users = results.includes?.users ?? [];
-
-    const enrichedTweets: EnrichedTweet[] = tweets.map((tweet) => {
-      const user = users.find(u => u.id === tweet.author_id);
-      return {
-        ...tweet,
-        author_id: tweet.author_id ?? '',
-        username: user?.username,
-        name: user?.name,
-        followers: user?.public_metrics?.followers_count ?? 0,
-      };
-    });
-
-    return enrichedTweets;
-  }
-
-  private filterSuspiciousUsernames(tweets: EnrichedTweet[]): EnrichedTweet[] {
-    const isSuspiciousUsername = (username?: string) =>
-      username ? /\d{4,}/.test(username) : true;
-
-    return tweets.filter(tweet => {
-      if (isSuspiciousUsername(tweet.username)) {
-        return false;
-      }
-      return true;
-    });
-  }
-
-  private selectTopPosts(tweets: EnrichedTweet[]): { id: string; author_id: string }[] {
-    return tweets
-      .map(tweet => ({
-        id: tweet.id,
-        author_id: tweet.author_id,
-        score: (tweet.public_metrics?.like_count ?? 0) + tweet.followers,
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10)
-      .map(({ id, author_id }) => ({ id, author_id }));
-  }
-
-  /* ------------------------------------------------------------------
-   * E) SYSTEM SETTINGS: hour + offset
-   * ------------------------------------------------------------------ */
-  private async getCurrentBookSearchHour(client: VercelPoolClient): Promise<number> {
-    const hourRes = await client.sql`
-      SELECT value FROM system_settings
-      WHERE key = 'book_search_hour'
-    `;
-    if (!hourRes.rows.length) {
-      await client.sql`
-        INSERT INTO system_settings(key, value)
-        VALUES ('book_search_hour', '-1')
-        ON CONFLICT(key) DO NOTHING
-      `;
-      return -1;
-    }
-    return parseInt(hourRes.rows[0].value, 10);
-  }
-
-  private async setCurrentBookSearchHour(client: VercelPoolClient, hour: number) {
-    await client.sql`
-      INSERT INTO system_settings(key, value)
-      VALUES ('book_search_hour', ${hour.toString()})
-      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
-    `;
-  }
-
-  private async getCurrentBookOffset(client: VercelPoolClient): Promise<number> {
-    const offsetRes = await client.sql`
-      SELECT value FROM system_settings
-      WHERE key = 'book_search_offset'
-    `;
-    if (!offsetRes.rows.length) {
-      await client.sql`
-        INSERT INTO system_settings(key, value)
-        VALUES ('book_search_offset', '0')
-        ON CONFLICT(key) DO NOTHING
-      `;
-      return 0;
-    }
-    return parseInt(offsetRes.rows[0].value, 10);
-  }
-
-  private async setCurrentBookOffset(client: VercelPoolClient, offset: number) {
-    await client.sql`
-      INSERT INTO system_settings(key, value)
-      VALUES ('book_search_offset', ${offset.toString()})
-      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
-    `;
-  }
-
-  /* ------------------------------------------------------------------
-   * F) SCHEDULING LOGIC FOR DAILY POSTS (Optional)
-   * ------------------------------------------------------------------ */
-
-  // Example: schedule 1 post for tomorrow
-  public async schedulePost(client: VercelPoolClient): Promise<any[]> {
+  /**
+   * ---------------------------------------------------------
+   *  C) Scheduling Daily Posts Logic (Existing)
+   * ---------------------------------------------------------
+   */
+  // Example: schedules 1 post for tomorrow
+  async schedulePost(client: VercelPoolClient): Promise<any[]> {
     console.log('Step 1: Check if there are already posts for tomorrow...');
     const existingPosts = await client.sql`
       SELECT 1
@@ -539,7 +325,8 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
     return data.rows;
   }
 
-  public async publishScheduledPosts(client: VercelPoolClient): Promise<void> {
+  // Publish any posts scheduled for today
+  async publishScheduledPosts(client: VercelPoolClient): Promise<void> {
     try {
       console.log('Fetching scheduled posts...');
       const scheduledPosts = await this.fetchScheduledPosts(client);
@@ -562,7 +349,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
           } else {
             console.error(`Unexpected error while publishing post ID ${post.id}:`, error);
           }
-          throw error; // Re-throw after logging
+          throw error; // Re-throw the error after logging
         }
       }
 
@@ -577,7 +364,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
     }
   }
 
-  public async fetchScheduledPosts(client: VercelPoolClient): Promise<any[]> {
+  async fetchScheduledPosts(client: VercelPoolClient): Promise<any[]> {
     const postsForToday = await client.sql`
       SELECT id, quote_id, text, image_link
       FROM posts
@@ -588,7 +375,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
     return postsForToday.rows;
   }
 
-  public async updatePostStatus(client: VercelPoolClient, postId: number) {
+  async updatePostStatus(client: VercelPoolClient, postId: number) {
     await client.sql`
       UPDATE posts
       SET status = 'published'
@@ -596,10 +383,12 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
     `;
   }
 
-  /* ------------------------------------------------------------------
-   * G) POST DIRECTLY TO TWITTER
-   * ------------------------------------------------------------------ */
-  public async postToTwitter(text: string, imageLink?: string | null) {
+  /**
+   * ---------------------------------------------------------
+   *  D) Twitter Post Logic
+   * ---------------------------------------------------------
+   */
+  async postToTwitter(text: string, imageLink?: string | null) {
     try {
       if (imageLink) {
         console.log('Downloading image...');
@@ -615,7 +404,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
         console.log('Successfully posted with image:', response);
         return response;
       } else {
-        // Text-only
+        // Post text-only tweet
         const response = await this.XApi.v2.tweet(text);
         console.log('Successfully posted:', response);
         return response;
@@ -630,11 +419,281 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
     }
   }
 
-  private async downloadImage(url: string): Promise<Buffer> {
+  async downloadImage(url: string): Promise<Buffer> {
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.statusText}`);
     }
     return Buffer.from(await response.arrayBuffer());
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  E) Searching tweets + filtering
+   * ---------------------------------------------------------
+   */
+  async searchPosts(title: string, author: string): Promise<EnrichedTweet[]> {
+    // If author has multiple words, search only the last word
+    const authorParts = author.trim().split(/\s+/);
+    const authorNameToSearch = authorParts.length > 1 ? authorParts.at(-1) : author;
+
+    const query = `"${title}" "${authorNameToSearch}" lang:en -is:retweet -is:reply -has:links`;
+
+    // 1. Get current time in UTC
+    const now = new Date();
+    // 2. Round down to start of the current hour
+    const end = new Date(now);
+    end.setUTCMinutes(0, 0, 0);
+    // 3. Go back 1 hour for the start
+    const start = new Date(end);
+    start.setUTCHours(end.getUTCHours() - 1);
+    // 4. Format times to ISO
+    const startTime = start.toISOString();
+    const endTime = end.toISOString();
+
+    try {
+      const results = await this.XApi.v2.search(query, {
+        start_time: startTime,
+        end_time: endTime,
+        max_results: 50,
+        'tweet.fields': ['created_at', 'author_id', 'text', 'public_metrics'],
+        expansions: ['author_id'],
+        'user.fields': ['username', 'name', 'public_metrics'],
+      });
+
+      const tweets = results.tweets ?? [];
+      const users = results.includes?.users ?? [];
+
+      // Attach username, name, followers
+      const enrichedTweets: EnrichedTweet[] = tweets.map((tweet) => {
+        const user = users.find(u => u.id === tweet.author_id);
+        return {
+          ...tweet,
+          author_id: tweet.author_id ?? '',
+          username: user?.username,
+          name: user?.name,
+          followers: user?.public_metrics?.followers_count ?? 0,
+        };
+      });
+
+      return enrichedTweets;
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('❌ Error during tweet search:', error.message);
+      } else {
+        console.error('❌ Unexpected error:', error);
+      }
+      throw error;
+    }
+  }
+
+  private filterSuspiciousUsernames(tweets: EnrichedTweet[]): EnrichedTweet[] {
+    const isSuspiciousUsername = (username?: string): boolean =>
+      username ? /\d{4,}/.test(username) : true;
+
+    return tweets.filter(tweet => {
+      if (isSuspiciousUsername(tweet.username)) {
+        console.log(`🚫 Skipping @${tweet.username} — suspicious username`);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private selectTopPosts(tweets: EnrichedTweet[]): { id: string; author_id: string }[] {
+    return tweets
+      .map(tweet => ({
+        id: tweet.id,
+        author_id: tweet.author_id,
+        // Score = likes + followers
+        score: (tweet.public_metrics?.like_count ?? 0) + tweet.followers,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map(({ id, author_id }) => ({ id, author_id }));
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  F) Removing known users + replying
+   * ---------------------------------------------------------
+   */
+  private async removePostsWithKnownUsers(
+    allPosts: EnrichedTweet[],
+    client: VercelPoolClient
+  ): Promise<EnrichedTweet[]> {
+    if (!allPosts.length) return [];
+
+    // Collect unique user IDs
+    const uniqueUserIds = [...new Set(allPosts.map(post => post.author_id))];
+    if (!uniqueUserIds.length) return allPosts; // No user IDs to filter
+
+    // We'll do placeholders approach, because ANY(${array}) triggers 'Primitive' error in @vercel/postgres
+    const placeholders = uniqueUserIds.map((_, i) => `$${i + 1}`).join(", ");
+    const query = `
+      SELECT user_id
+      FROM replies
+      WHERE user_id IN (${placeholders})
+        AND replied_at >= NOW() - INTERVAL '30 days'
+    `;
+    // Execute the query with the user IDs as parameters
+    const result = await client.query(query, uniqueUserIds);
+
+    // Convert rows into a Set of known user IDs
+    const knownUserIds = new Set(result.rows.map(row => row.user_id));
+
+    // Filter out posts from known users
+    return allPosts.filter(post => {
+      if (knownUserIds.has(post.author_id)) {
+        console.log(`🚫 Skipping user ${post.author_id} — replied to within last 30 days`);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // Actually reply with the correct link and book info
+  async replyToPosts(
+    posts: { id: string; author_id: string }[],
+    link: string,
+    title: string,
+    author: string,
+    client: VercelPoolClient // pass the DB client in
+  ) {
+    const utmLink = `${link}?utm_source=t.co&utm_medium=referral&utm_campaign=x-replies`;
+    const message = `Download for free the ebook "${title}" by ${author}\n${utmLink}`;
+
+    for (const post of posts) {
+      try {
+        console.log(`Replying to tweet ID ${post.id}...`);
+
+        // 1. Send the reply
+        await this.XApi.v2.reply(message, post.id);
+        console.log(`✅ Replied to tweet ID ${post.id}`);
+
+        // 2. Build the post URL
+        const username = "UnknownUser"; // If you have a real username from your data, use it here
+        const postUrl = `https://twitter.com/${username}/status/${post.id}`;
+
+        // 3. Upsert into the replies table
+        await this.insertReplyRecord(
+          client,
+          post.author_id,
+          username,
+          post.id,
+          postUrl,
+          title
+        );
+        console.log(`✅ Logged reply to user ${post.author_id} in 'replies' table.`);
+      } catch (error) {
+        if (error instanceof Error) {
+          console.error(`❌ Failed to reply to tweet ID ${post.id}:`, error.message);
+        } else {
+          console.error(`❌ Unknown error replying to tweet ID ${post.id}:`, error);
+        }
+      }
+    }
+  }
+
+  private async insertReplyRecord(
+    client: VercelPoolClient,
+    userId: string,
+    username: string,
+    postId: string,
+    postUrl: string,
+    bookTitle: string
+  ): Promise<void> {
+    // ON CONFLICT on user_id ensures you can't reply to the same user more than once in 30 days
+    await client.sql`
+      INSERT INTO replies (user_id, username, post_id, post_url, book_title)
+      VALUES (${userId}, ${username}, ${postId}, ${postUrl}, ${bookTitle})
+      ON CONFLICT (user_id)
+      DO UPDATE
+        SET
+          replied_at = now(),
+          username = EXCLUDED.username,
+          post_id = EXCLUDED.post_id,
+          post_url = EXCLUDED.post_url,
+          book_title = EXCLUDED.book_title
+    `;
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  G) Main pipeline (if needed) for existing usage
+   * ---------------------------------------------------------
+   *
+   * This method now accepts an array of books from quarterHourly,
+   * rather than fetching random 50 inside. But you can keep or remove it
+   * as you like.
+   */
+  public async replyToAllBookMentions(
+    client: VercelPoolClient,
+    books: BookRow[]
+  ): Promise<void> {
+    console.log(`replyToAllBookMentions invoked with ${books.length} book(s)`);
+
+    if (!books.length) {
+      console.log("⚠️ No books found. Aborting...");
+      return;
+    }
+
+    // 1. Gather all matching tweets from these books
+    const allPosts: EnrichedTweet[] = [];
+
+    for (const { title, author, link } of books) {
+      try {
+        console.log(`🔍 Searching posts for "${title}" by "${author}"...`);
+        const posts = await this.searchPosts(title, author);
+
+        // Filter out suspicious usernames
+        const filteredPosts = this.filterSuspiciousUsernames(posts);
+        console.log(`   Found ${posts.length} posts, kept ${filteredPosts.length} after suspicious filter.`);
+
+        // Attach book metadata
+        const enriched = filteredPosts.map(tweet => ({
+          ...tweet,
+          book_title: title,
+          book_author: author,
+          book_link: link,
+        }));
+
+        allPosts.push(...enriched);
+      } catch (error) {
+        console.error(`❌ Error searching "${title}":`, error);
+      }
+    }
+
+    console.log(`✅ Total posts across these ${books.length} book(s): ${allPosts.length}`);
+
+    if (!allPosts.length) {
+      console.log("⚠️ No posts to process. Aborting...");
+      return;
+    }
+
+    // 2. Remove users already replied to in last 30 days
+    const postsFromNewUsers = await this.removePostsWithKnownUsers(allPosts, client);
+    console.log(`🧹 After removing known users: ${postsFromNewUsers.length} posts remain.`);
+
+    // 3. Select top 10
+    const topPosts = this.selectTopPosts(postsFromNewUsers);
+    console.log(`🏆 Chosen top ${topPosts.length} posts.`);
+
+    // 4. Reply to each top post with the correct book info
+    for (const top of topPosts) {
+      // Find the full data from `postsFromNewUsers` (including book_link, etc.)
+      const postData = postsFromNewUsers.find(p => p.id === top.id);
+      if (!postData) continue;
+
+      await this.replyToPosts(
+        [{ id: postData.id, author_id: postData.author_id }],
+        postData.book_link ?? '',
+        postData.book_title ?? '',
+        postData.book_author ?? '',
+        client
+      );
+    }
+
+    console.log("🎉 Finished replying to top posts.");
   }
 }
