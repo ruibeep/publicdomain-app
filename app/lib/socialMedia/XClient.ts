@@ -554,7 +554,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
 
   // Actually reply with the correct link and book info
   async replyToPosts(
-    posts: { id: string; author_id: string }[],
+    posts: { id: string; author_id: string; username?: string }[],
     link: string,
     title: string,
     author: string,
@@ -562,19 +562,19 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
   ) {
     const utmLink = `${link}?utm_source=t.co&utm_medium=referral&utm_campaign=x-replies`;
     const message = `Download for free the ebook "${title}" by ${author}\n${utmLink}`;
-
+  
     for (const post of posts) {
       try {
         console.log(`Replying to tweet ID ${post.id}...`);
-
+  
         // 1. Send the reply
         await this.XApi.v2.reply(message, post.id);
         console.log(`✅ Replied to tweet ID ${post.id}`);
-
-        // 2. Build the post URL
-        const username = "UnknownUser"; // If you have a real username from your data, use it here
+  
+        // 2. Build the post URL using username (fallback to "UnknownUser")
+        const username = post.username ?? "UnknownUser";
         const postUrl = `https://twitter.com/${username}/status/${post.id}`;
-
+  
         // 3. Upsert into the replies table
         await this.insertReplyRecord(
           client,
@@ -686,7 +686,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
       if (!postData) continue;
 
       await this.replyToPosts(
-        [{ id: postData.id, author_id: postData.author_id }],
+        [{ id: postData.id, author_id: postData.author_id, username: postData.username}],
         postData.book_link ?? '',
         postData.book_title ?? '',
         postData.book_author ?? '',
