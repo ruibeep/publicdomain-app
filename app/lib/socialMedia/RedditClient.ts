@@ -186,6 +186,6 @@ export class RedditClient extends BaseSocialMediaClient implements SocialMediaCl
         }
     }
 
-    async replyToAllBookMentions(client: VercelPoolClient): Promise<void> {
+    async quarterHourly(client: VercelPoolClient): Promise<void> {
     }
 }

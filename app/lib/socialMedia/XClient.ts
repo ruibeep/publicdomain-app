@@ -1,362 +1,675 @@
 import { VercelPoolClient } from "@vercel/postgres";
 import { BaseSocialMediaClient, SocialMediaClient } from "./SocialMediaClient";
-import { TwitterApi } from 'twitter-api-v2';
+import { TwitterApi, TweetV2 } from 'twitter-api-v2';
+
+// Extend TweetV2 to include your custom fields
+type EnrichedTweet = TweetV2 & {
+  // from Twitter
+  author_id: string;     // guaranteed by expansions
+  username?: string;     // assigned in search
+  name?: string;         // assigned in search
+  followers: number;     // assigned in search
+
+  // custom book fields
+  book_title?: string;
+  book_author?: string;
+  book_link?: string;
+};
+
+// Shape of rows returned by the SELECT query in quarterHourly
+type BookRow = {
+  title: string;
+  link: string;
+  author: string;
+};
 
 export class XClient extends BaseSocialMediaClient implements SocialMediaClient {
-    protected platform = 'X';
-    private XApi: TwitterApi;
+  protected platform = 'X';
+  private XApi: TwitterApi;
 
-    constructor(apiConfig: { appKey: string; appSecret: string; accessToken: string; accessSecret: string }) {
-        super();
-        // Initialize Twitter client with OAuth 1.0a credentials
-        this.XApi = new TwitterApi({
-            appKey: apiConfig.appKey,
-            appSecret: apiConfig.appSecret,
-            accessToken: apiConfig.accessToken,
-            accessSecret: apiConfig.accessSecret,
-        });
+  constructor(apiConfig: { appKey: string; appSecret: string; accessToken: string; accessSecret: string }) {
+    super();
+    // Initialize Twitter client with OAuth 1.0a credentials
+    this.XApi = new TwitterApi({
+      appKey: apiConfig.appKey,
+      appSecret: apiConfig.appSecret,
+      accessToken: apiConfig.accessToken,
+      accessSecret: apiConfig.accessSecret,
+    });
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  A) HELPER FUNCTIONS (System Settings)
+   * ---------------------------------------------------------
+   */
+  private async getSystemSetting(client: VercelPoolClient, key: string): Promise<string | null> {
+    const result = await client.sql`
+      SELECT value 
+      FROM system_settings
+      WHERE key = ${key};
+    `;
+    if (!result.rows.length) return null;
+    return result.rows[0].value;
+  }
+
+  private async setSystemSetting(client: VercelPoolClient, key: string, value: string): Promise<void> {
+    // Insert or update
+    await client.sql`
+      INSERT INTO system_settings (key, value)
+      VALUES (${key}, ${value})
+      ON CONFLICT (key) DO UPDATE
+      SET value = EXCLUDED.value;
+    `;
+  }
+
+  // Manages the "hour" setting
+  private async getCurrentBookSearchHour(client: VercelPoolClient): Promise<number> {
+    const hourStr = await this.getSystemSetting(client, 'book_search_hour');
+    if (hourStr === null) {
+      // If missing, initialize to -1
+      await this.setSystemSetting(client, 'book_search_hour', '-1');
+      return -1;
+    }
+    return parseInt(hourStr, 10);
+  }
+
+  private async setCurrentBookSearchHour(client: VercelPoolClient, hour: number): Promise<void> {
+    await this.setSystemSetting(client, 'book_search_hour', hour.toString());
+  }
+
+  // Manages the "offset" setting
+  private async getCurrentBookOffset(client: VercelPoolClient): Promise<number> {
+    const offsetStr = await this.getSystemSetting(client, 'book_search_offset');
+    if (offsetStr === null) {
+      // If missing, initialize to 0
+      await this.setSystemSetting(client, 'book_search_offset', '0');
+      return 0;
+    }
+    return parseInt(offsetStr, 10);
+  }
+
+  private async setCurrentBookOffset(client: VercelPoolClient, newOffset: number): Promise<void> {
+    await this.setSystemSetting(client, 'book_search_offset', newOffset.toString());
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  B) QUARTER-HOURLY (Runs Every 15 Min)
+   * ---------------------------------------------------------
+   *  - Resets offset to 0 if hour changed
+   *  - Dynamically fetches chunk of books (up to 50)
+   *  - Calls replyToAllBookMentions(books) to search & reply
+   *  - Moves offset for next run
+   */
+  public async quarterHourly(client: VercelPoolClient): Promise<void> {
+    // 0. Check how many replies in last 24 hours
+    const countResult = await client.sql`
+      SELECT COUNT(*) AS last24
+      FROM replies
+      WHERE replied_at >= NOW() - INTERVAL '24 hours'
+    `;
+    const repliesInLast24 = parseInt(countResult.rows[0].last24, 10);
+
+    if (repliesInLast24 >= 90) {
+      console.log(`🚫 Already made ${repliesInLast24} replies in last 24 hours, skipping...`);
+      return;
     }
 
-    async schedulePost(client: VercelPoolClient): Promise<any[]> {
-        console.log('Step 1: Check if there are already posts for tomorrow...');
-        const existingPosts = await client.sql`
-          SELECT 1
-          FROM posts
-          WHERE status = 'scheduled'
-            AND platform LIKE '%X%'
-            AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
-        `;
-
-        if (existingPosts.rows.length > 0) {
-            console.log('   A post for tomorrow already exists. Aborting...');
-            return [];
-        } else {
-            console.log('   No scheduled posts found for tomorrow. Proceeding...');
-        }
-
-        console.log('Step 2: Fetch the next quote to publish...');
-        // Used ChatGPT for creating this SQL query.
-        // https://chatgpt.com/share/677d0a6c-a840-8010-8815-5ad1b9226577
-        const quoteToPostResult = await client.sql`
-          WITH book_quote_counts AS (
-            SELECT
-              b.id AS book_id,
-              b.title AS book_title,
-              b.cover AS book_cover,
-              a.name AS author_name,
-              COUNT(p.id) AS book_post_count
-            FROM
-              books b
-              JOIN authors a ON b.author_id = a.id
-              LEFT JOIN quotes q ON b.id = q.book_id
-              LEFT JOIN posts p ON q.id = p.quote_id
-            GROUP BY
-              b.id, b.title, b.cover, a.name
-          ),
-          quote_post_counts AS (
-            SELECT
-              q.id AS quote_id,
-              q.quote,
-              q.popularity,
-              q.book_id,
-              COUNT(p.id) AS quote_post_count
-            FROM
-              quotes q
-              LEFT JOIN posts p ON q.id = p.quote_id
-            GROUP BY
-              q.id, q.quote, q.popularity, q.book_id
-          ),
-          filtered_books AS (
-            SELECT
-              bq.book_id,
-              bq.book_title,
-              bq.book_cover,
-              bq.author_name,
-              MIN(qpc.quote_post_count) AS min_quote_post_count,
-              bq.book_post_count
-            FROM
-              book_quote_counts bq
-              JOIN quote_post_counts qpc ON bq.book_id = qpc.book_id
-            GROUP BY
-              bq.book_id, bq.book_title, bq.book_cover, bq.author_name, bq.book_post_count
-            ORDER BY
-              bq.book_post_count ASC
-          ),
-          final_quotes AS (
-            SELECT
-              qpc.quote_id,
-              qpc.quote,
-              qpc.book_id,
-              fb.book_title,
-              fb.book_cover,
-              fb.author_name,
-              qpc.popularity
-            FROM
-              filtered_books fb
-              JOIN quote_post_counts qpc ON fb.book_id = qpc.book_id
-            WHERE
-              qpc.quote_post_count = fb.min_quote_post_count
-            ORDER BY
-              fb.book_post_count ASC,
-              qpc.quote_post_count ASC,
-              qpc.popularity DESC
-          )
-          SELECT
-            quote_id,
-            quote,
-            book_id,
-            book_title,
-            book_cover,
-            author_name,
-            popularity
-          FROM
-            final_quotes
-          LIMIT 1;
-        `;
-
-        const quoteToPost = quoteToPostResult.rows; // Extract the rows array
-        if (quoteToPost.length === 0) {
-            console.log('   No quotes available to schedule. Aborting...');
-            return [];
-        } else {
-            console.log('   Next Quote to post:', quoteToPost[0].quote);
-        }
-
-        console.log('Step 3: Build the post text dynamically ...');
-        const item = quoteToPost[0]; // Access the first item in the rows array
-        const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name} #ebooks #mustread #booklovers #book #ReadersCommunity #bookrecommendations #kindlebooks #ClassicLitMonday #BookologyThursday`;
-        console.log('  Post text:', postText);
-
-        console.log('Step 4: Insert the new post for tomorrow ...');
-        const data = await client.sql`
-          INSERT INTO posts (quote_id, text, image_link, platform, status, published_date)
-          VALUES (
-            ${item.quote_id},
-            ${postText},
-            ${item.book_cover},
-            'X',
-            'scheduled',
-            (CURRENT_DATE + INTERVAL '1 day')
-          );
-        `;
-
-        console.log(`   Scheduled 1 post for tomorrow: Quote ID ${item.quote_id}, Text: "${postText}".`);
-        return data.rows;
+    // 1. Check total books
+    const totalRes = await client.sql`SELECT COUNT(*) AS total FROM books;`;
+    const totalBooks = parseInt(totalRes.rows[0].total, 10);
+    if (totalBooks === 0) {
+      console.log("No books in DB. Aborting quarterHourly...");
+      return;
     }
 
-    async publishScheduledPosts(client: VercelPoolClient): Promise<void> {
-        try {
-            console.log('Fetching scheduled posts...');
-            const scheduledPosts = await this.fetchScheduledPosts(client);
-            console.log('Fetch scheduled posts done.');
+    // 2. Check if hour changed
+    const now = new Date();
+    const currentHour = now.getHours(); // local hour; or use getUTCHours()
+    const lastHour = await this.getCurrentBookSearchHour(client);
 
-            if (!scheduledPosts.length) {
-                console.error('No posts scheduled for today.');
-            }
-
-            console.log(`Found ${scheduledPosts.length} posts for today. Posting...`);
-
-            for (const post of scheduledPosts) {
-                try {
-                    await this.postToTwitter(post.text, post.image_link);
-                    await this.updatePostStatus(client, post.id);
-                    console.log(`Post ID ${post.id} published successfully.`);
-                } catch (error) {
-                    if (error instanceof Error) {
-                        console.error(`Failed to publish post ID ${post.id}:`, error.message);
-                    } else {
-                        console.error(`Unpextected error while publishing post ID ${post.id}:`, error);
-                    }
-                    throw error; // Re-throw the error after logging         
-                }
-            }
-
-            console.log('All posts scheduled for today have been processed.');
-        } catch (error) {
-            if (error instanceof Error) {
-                console.error('Error processing scheduled posts:', error.message);
-            } else {
-                console.error('An unexpected error processing scheduled posts::', error);
-            }
-            throw error; // Re-throw the error after logging 
-        }
+    if (currentHour !== lastHour) {
+      console.log(`⏰ Hour changed from ${lastHour} to ${currentHour}. Resetting book_search_offset to 0.`);
+      await this.setCurrentBookOffset(client, 0);
+      await this.setCurrentBookSearchHour(client, currentHour);
     }
 
-    // Post a single quote to Twitter
-    async postToTwitter(text: string, imageLink?: string | null) {
-        try {
-            if (imageLink) {
-                console.log('Downloading image...');
-                const imageBuffer = await this.downloadImage(imageLink);
+    // 3. Determine how many books per run
+    const chunk = Math.min(50, Math.ceil(totalBooks / 4));
 
-                console.log('Uploading image to Twitter...');
-                const mediaId = await this.XApi.v1.uploadMedia(imageBuffer, { mimeType: 'image/jpeg' });
+    // 4. Get current offset
+    const offset = await this.getCurrentBookOffset(client);
+    console.log(`quarterHourly: total=${totalBooks}, hour=${currentHour}, offset=${offset}, chunk=${chunk}`);
 
-                // Post with media
-                console.log('Making the post...');
-                // const response = await twitterClient.v2.tweet(text, { media_ids: [mediaId] });
-                const response = await this.XApi.v2.tweet({ text: text, media: { media_ids: [mediaId] } });
+    // 5. Fetch next chunk of books
+    const booksResult = await client.sql`
+      SELECT b.title, b.link, a.name AS author
+      FROM books b
+      JOIN authors a ON b.author_id = a.id
+      ORDER BY b.id
+      LIMIT ${chunk}
+      OFFSET ${offset}
+    `;
 
+    // Cast the result rows to BookRow[]
+    const books = booksResult.rows as BookRow[];
 
-                console.log('Successfully posted with image:', response);
-                return response;
-            } else {
-                // Post text-only tweet
-                const response = await this.XApi.v2.tweet(text);
-                console.log('Successfully posted:', response);
-                return response;
-            }
-        } catch (error) {
-            if (error instanceof Error) {
-                console.error('Error fetching scheduled posts:', error.message);
-            } else {
-                console.error('An unexpected error occurred:', error);
-            }
-            throw error; // Re-throw the error after logging
-        }
+    if (!books.length) {
+      console.log("No books returned in this batch. Possibly near end of DB. Resetting offset to 0.");
+      await this.setCurrentBookOffset(client, 0);
+      return;
     }
 
-    // Download an image from a URL
-    async downloadImage(url: string): Promise<Buffer> {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch image: ${response.statusText}`);
-        }
-        return Buffer.from(await response.arrayBuffer());
+    // 6. Use the existing pipeline to search & reply
+    console.log(`Found ${books.length} books in this batch. Passing them to replyToAllBookMentions...`);
+    await this.replyToAllBookMentions(client, books);
+
+    // 7. Advance offset
+    let newOffset = offset + chunk;
+    if (newOffset >= totalBooks) {
+      newOffset = 0; // wrap
+    }
+    await this.setCurrentBookOffset(client, newOffset);
+
+    console.log(`Done with quarterHourly. Offset is now ${newOffset}.`);
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  C) Scheduling Daily Posts Logic (Existing)
+   * ---------------------------------------------------------
+   */
+  // Example: schedules 1 post for tomorrow
+  async schedulePost(client: VercelPoolClient): Promise<any[]> {
+    console.log('Step 1: Check if there are already posts for tomorrow...');
+    const existingPosts = await client.sql`
+      SELECT 1
+      FROM posts
+      WHERE status = 'scheduled'
+        AND platform LIKE '%X%'
+        AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
+    `;
+
+    if (existingPosts.rows.length > 0) {
+      console.log('   A post for tomorrow already exists. Aborting...');
+      return [];
+    } else {
+      console.log('   No scheduled posts found for tomorrow. Proceeding...');
     }
 
-    async searchPosts(title: string, author: string) {
-      console.log(`🔍 Searching posts for title: "${title}" and author: "${author}"`);
-  
-      // Get last name (or full name if there's only one)
-      const authorParts = author.trim().split(/\s+/);
-      const authorNameToSearch = authorParts.length > 1 ? authorParts.at(-1) : author;
-  
-      // Construct Twitter search query
-      const query = `"${title}" "${authorNameToSearch}" -is:retweet lang:en`;
-  
-      // Calculate start and end time for "yesterday"
-      const now = new Date();
-      const yesterday = new Date(now);
-      yesterday.setDate(now.getDate() - 1);
-  
-      const startTime = new Date(yesterday.setHours(0, 0, 0, 0)).toISOString();
-      const endTime = new Date(yesterday.setHours(23, 59, 59, 999)).toISOString();
-  
-      console.log(`Query: ${query}`);
-      console.log(`From: ${startTime}`);
-      console.log(`To: ${endTime}`);
-  
-      try {
-          const results = await this.XApi.v2.search(query, {
-              start_time: startTime,
-              end_time: endTime,
-              max_results: 50,
-              'tweet.fields': ['created_at', 'author_id', 'text'],
-          });
-  
-          const tweets = results.tweets ?? [];
-          console.log(`✅ Found ${tweets.length} tweet(s).`);
-          return tweets;
-      } catch (error) {
-          if (error instanceof Error) {
-              console.error('❌ Error during tweet search:', error.message);
-          } else {
-              console.error('❌ Unexpected error:', error);
-          }
-          throw error;
-      }
-    }
-
-    async replyToPosts(
-      posts: { id: string; author_id: string }[],
-      link: string,
-      title: string,
-      author: string
-    ) {
-      const utmLink = `${link}?utm_source=t.co&utm_medium=referral&utm_campaign=x-replies`;
-      const message = `Download for free the ebook "${title}" by ${author}\n${utmLink}`;
-    
-      for (const post of posts) {
-        try {
-          console.log(`Replying to tweet ID ${post.id}...`);
-    
-          await this.XApi.v2.reply(message, post.id);
-    
-          console.log(`✅ Replied to tweet ID ${post.id}`);
-          // Optional: Add delay to avoid rate limiting
-          await new Promise(res => setTimeout(res, 3000)); // 3 second delay
-        } catch (error) {
-          if (error instanceof Error) {
-            console.error(`❌ Failed to reply to tweet ID ${post.id}:`, error.message);
-          } else {
-            console.error(`❌ Unknown error replying to tweet ID ${post.id}:`, error);
-          }
-        }
-      }
-    }
-
-    async replyToAllBookMentions(client: VercelPoolClient): Promise<void> {
-      console.log("📚 Fetching all books and authors...");
-    
-      const result = await client.sql`
-        SELECT b.title, b.link, a.name AS author
+    console.log('Step 2: Fetch the next quote to publish...');
+    const quoteToPostResult = await client.sql`
+      WITH book_quote_counts AS (
+        SELECT
+          b.id AS book_id,
+          b.title AS book_title,
+          b.cover AS book_cover,
+          a.name AS author_name,
+          COUNT(p.id) AS book_post_count
         FROM books b
-        JOIN authors a ON b.author_id = a.id;
-      `;
-    
-      const books = result.rows;
-      // const books = result.rows.slice(1); // skips the first book
-      if (books.length === 0) {
-        console.log("⚠️ No books found in the database.");
-        return;
+        JOIN authors a ON b.author_id = a.id
+        LEFT JOIN quotes q ON b.id = q.book_id
+        LEFT JOIN posts p ON q.id = p.quote_id
+        GROUP BY
+          b.id, b.title, b.cover, a.name
+      ),
+      quote_post_counts AS (
+        SELECT
+          q.id AS quote_id,
+          q.quote,
+          q.popularity,
+          q.book_id,
+          COUNT(p.id) AS quote_post_count
+        FROM quotes q
+        LEFT JOIN posts p ON q.id = p.quote_id
+        GROUP BY
+          q.id, q.quote, q.popularity, q.book_id
+      ),
+      filtered_books AS (
+        SELECT
+          bq.book_id,
+          bq.book_title,
+          bq.book_cover,
+          bq.author_name,
+          MIN(qpc.quote_post_count) AS min_quote_post_count,
+          bq.book_post_count
+        FROM book_quote_counts bq
+        JOIN quote_post_counts qpc ON bq.book_id = qpc.book_id
+        GROUP BY
+          bq.book_id, bq.book_title, bq.book_cover, bq.author_name, bq.book_post_count
+        ORDER BY
+          bq.book_post_count ASC
+      ),
+      final_quotes AS (
+        SELECT
+          qpc.quote_id,
+          qpc.quote,
+          qpc.book_id,
+          fb.book_title,
+          fb.book_cover,
+          fb.author_name,
+          qpc.popularity
+        FROM filtered_books fb
+        JOIN quote_post_counts qpc ON fb.book_id = qpc.book_id
+        WHERE qpc.quote_post_count = fb.min_quote_post_count
+        ORDER BY
+          fb.book_post_count ASC,
+          qpc.quote_post_count ASC,
+          qpc.popularity DESC
+      )
+      SELECT
+        quote_id,
+        quote,
+        book_id,
+        book_title,
+        book_cover,
+        author_name,
+        popularity
+      FROM final_quotes
+      LIMIT 1;
+    `;
+
+    const quoteToPost = quoteToPostResult.rows;
+    if (!quoteToPost.length) {
+      console.log('   No quotes available to schedule. Aborting...');
+      return [];
+    } else {
+      console.log('   Next Quote to post:', quoteToPost[0].quote);
+    }
+
+    console.log('Step 3: Build the post text dynamically ...');
+    const item = quoteToPost[0];
+    const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name} #ebooks #mustread #booklovers #book #ReadersCommunity #bookrecommendations #kindlebooks #ClassicLitMonday #BookologyThursday`;
+    console.log('  Post text:', postText);
+
+    console.log('Step 4: Insert the new post for tomorrow ...');
+    const data = await client.sql`
+      INSERT INTO posts (quote_id, text, image_link, platform, status, published_date)
+      VALUES (
+        ${item.quote_id},
+        ${postText},
+        ${item.book_cover},
+        'X',
+        'scheduled',
+        (CURRENT_DATE + INTERVAL '1 day')
+      )
+      RETURNING id;
+    `;
+
+    console.log(`   Scheduled 1 post for tomorrow: Quote ID ${item.quote_id}, Text: "${postText}".`);
+    return data.rows;
+  }
+
+  // Publish any posts scheduled for today
+  async publishScheduledPosts(client: VercelPoolClient): Promise<void> {
+    try {
+      console.log('Fetching scheduled posts...');
+      const scheduledPosts = await this.fetchScheduledPosts(client);
+      console.log('Fetch scheduled posts done.');
+
+      if (!scheduledPosts.length) {
+        console.error('No posts scheduled for today.');
       }
-    
-      let tweetsSent = 0;
-    
-      for (const { title, author, link } of books) {    
+
+      console.log(`Found ${scheduledPosts.length} posts for today. Posting...`);
+
+      for (const post of scheduledPosts) {
         try {
-          console.log(`🔍 Processing "${title}" by ${author}`);
-    
-          const posts = await this.searchPosts(title, author);
-    
-          if (posts.length === 0) {
-            console.log(`   No tweets found for "${title}"`);
-          } else {
-            console.log(`💬 Found ${posts.length} tweets. Waiting 2 seconds before replying...`);
-            await new Promise(res => setTimeout(res, 2000));
-    
-            const remainingQuota = 100 - tweetsSent;
-            const postsToReply = posts.slice(0, remainingQuota).map(tweet => ({
-              id: tweet.id,
-              author_id: tweet.author_id ?? "", // fallback if missing
-            }));
-            
-            await this.replyToPosts(postsToReply, link, title, author);
-            tweetsSent += postsToReply.length;
-    
-            console.log(`📈 Total tweets sent: ${tweetsSent}/100`);
-            if (tweetsSent >= 100) {
-              console.log("🚫 Reached 100 tweets for the day. Stopping.");
-              break;
-            }            
-          }
+          await this.postToTwitter(post.text, post.image_link);
+          await this.updatePostStatus(client, post.id);
+          console.log(`Post ID ${post.id} published successfully.`);
         } catch (error) {
           if (error instanceof Error) {
-            console.error(`❌ Error processing "${title}" by ${author}:`, error.message);
+            console.error(`Failed to publish post ID ${post.id}:`, error.message);
           } else {
-            console.error(`❌ Unexpected error processing "${title}":`, error);
+            console.error(`Unexpected error while publishing post ID ${post.id}:`, error);
           }
+          throw error; // Re-throw the error after logging
         }
-    
-        //console.log("⏳ Waiting 15 minutes before processing the next book...");
-        const nextBookTime = new Date(Date.now() + 15 * 60 * 1000);
-        console.log(`⏳ Waiting 15 minutes... next book will be processed at ${nextBookTime.toLocaleTimeString()}`);
-        await new Promise(res => setTimeout(res, 15 * 60 * 1000)); // 15 minutes
       }
-    
-      console.log("✅ Finished replying to all book mentions.");
-    }
-    
-}
 
+      console.log('All posts scheduled for today have been processed.');
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error processing scheduled posts:', error.message);
+      } else {
+        console.error('An unexpected error processing scheduled posts:', error);
+      }
+      throw error;
+    }
+  }
+
+  async fetchScheduledPosts(client: VercelPoolClient): Promise<any[]> {
+    const postsForToday = await client.sql`
+      SELECT id, quote_id, text, image_link
+      FROM posts
+      WHERE status = 'scheduled'
+        AND platform LIKE '%X%'
+        AND DATE(published_date) = CURRENT_DATE;
+    `;
+    return postsForToday.rows;
+  }
+
+  async updatePostStatus(client: VercelPoolClient, postId: number) {
+    await client.sql`
+      UPDATE posts
+      SET status = 'published'
+      WHERE id = ${postId};
+    `;
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  D) Twitter Post Logic
+   * ---------------------------------------------------------
+   */
+  async postToTwitter(text: string, imageLink?: string | null) {
+    try {
+      if (imageLink) {
+        console.log('Downloading image...');
+        const imageBuffer = await this.downloadImage(imageLink);
+
+        console.log('Uploading image to Twitter...');
+        const mediaId = await this.XApi.v1.uploadMedia(imageBuffer, { mimeType: 'image/jpeg' });
+
+        // Post with media
+        console.log('Making the post...');
+        const response = await this.XApi.v2.tweet({ text, media: { media_ids: [mediaId] } });
+
+        console.log('Successfully posted with image:', response);
+        return response;
+      } else {
+        // Post text-only tweet
+        const response = await this.XApi.v2.tweet(text);
+        console.log('Successfully posted:', response);
+        return response;
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error posting tweet:', error.message);
+      } else {
+        console.error('An unexpected error occurred:', error);
+      }
+      throw error;
+    }
+  }
+
+  async downloadImage(url: string): Promise<Buffer> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.statusText}`);
+    }
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  E) Searching tweets + filtering
+   * ---------------------------------------------------------
+   */
+  async searchPosts(title: string, author: string): Promise<EnrichedTweet[]> {
+    // If author has multiple words, search only the last word
+    const authorParts = author.trim().split(/\s+/);
+    const authorNameToSearch = authorParts.length > 1 ? authorParts.at(-1) : author;
+
+    const query = `"${title}" "${authorNameToSearch}" lang:en -is:retweet -is:reply -has:links`;
+
+    // 1. Get current time in UTC
+    const now = new Date();
+    // 2. Round down to start of the current hour
+    const end = new Date(now);
+    end.setUTCMinutes(0, 0, 0);
+    // 3. Go back 1 hour for the start
+    const start = new Date(end);
+    start.setUTCHours(end.getUTCHours() - 1);
+    // 4. Format times to ISO
+    const startTime = start.toISOString();
+    const endTime = end.toISOString();
+
+    try {
+      const results = await this.XApi.v2.search(query, {
+        start_time: startTime,
+        end_time: endTime,
+        max_results: 50,
+        'tweet.fields': ['created_at', 'author_id', 'text', 'public_metrics'],
+        expansions: ['author_id'],
+        'user.fields': ['username', 'name', 'public_metrics'],
+      });
+
+      const tweets = results.tweets ?? [];
+      const users = results.includes?.users ?? [];
+
+      // Attach username, name, followers
+      const enrichedTweets: EnrichedTweet[] = tweets.map((tweet) => {
+        const user = users.find(u => u.id === tweet.author_id);
+        return {
+          ...tweet,
+          author_id: tweet.author_id ?? '',
+          username: user?.username,
+          name: user?.name,
+          followers: user?.public_metrics?.followers_count ?? 0,
+        };
+      });
+
+      return enrichedTweets;
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('❌ Error during tweet search:', error.message);
+      } else {
+        console.error('❌ Unexpected error:', error);
+      }
+      throw error;
+    }
+  }
+
+  private filterSuspiciousUsernames(tweets: EnrichedTweet[]): EnrichedTweet[] {
+    const isSuspiciousUsername = (username?: string): boolean =>
+      username ? /\d{4,}/.test(username) : true;
+
+    return tweets.filter(tweet => {
+      if (isSuspiciousUsername(tweet.username)) {
+        console.log(`🚫 Skipping @${tweet.username} — suspicious username`);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private selectTopPosts(tweets: EnrichedTweet[]): { id: string; author_id: string }[] {
+    return tweets
+      .map(tweet => ({
+        id: tweet.id,
+        author_id: tweet.author_id,
+        // Score = likes + followers
+        score: (tweet.public_metrics?.like_count ?? 0) + tweet.followers,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map(({ id, author_id }) => ({ id, author_id }));
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  F) Removing known users + replying
+   * ---------------------------------------------------------
+   */
+  private async removePostsWithKnownUsers(
+    allPosts: EnrichedTweet[],
+    client: VercelPoolClient
+  ): Promise<EnrichedTweet[]> {
+    if (!allPosts.length) return [];
+
+    // Collect unique user IDs
+    const uniqueUserIds = [...new Set(allPosts.map(post => post.author_id))];
+    if (!uniqueUserIds.length) return allPosts; // No user IDs to filter
+
+    // We'll do placeholders approach, because ANY(${array}) triggers 'Primitive' error in @vercel/postgres
+    const placeholders = uniqueUserIds.map((_, i) => `$${i + 1}`).join(", ");
+    const query = `
+      SELECT user_id
+      FROM replies
+      WHERE user_id IN (${placeholders})
+        AND replied_at >= NOW() - INTERVAL '30 days'
+    `;
+    // Execute the query with the user IDs as parameters
+    const result = await client.query(query, uniqueUserIds);
+
+    // Convert rows into a Set of known user IDs
+    const knownUserIds = new Set(result.rows.map(row => row.user_id));
+
+    // Filter out posts from known users
+    return allPosts.filter(post => {
+      if (knownUserIds.has(post.author_id)) {
+        console.log(`🚫 Skipping user ${post.author_id} — replied to within last 30 days`);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  // Actually reply with the correct link and book info
+  async replyToPosts(
+    posts: { id: string; author_id: string }[],
+    link: string,
+    title: string,
+    author: string,
+    client: VercelPoolClient // pass the DB client in
+  ) {
+    const utmLink = `${link}?utm_source=t.co&utm_medium=referral&utm_campaign=x-replies`;
+    const message = `Download for free the ebook "${title}" by ${author}\n${utmLink}`;
+
+    for (const post of posts) {
+      try {
+        console.log(`Replying to tweet ID ${post.id}...`);
+
+        // 1. Send the reply
+        await this.XApi.v2.reply(message, post.id);
+        console.log(`✅ Replied to tweet ID ${post.id}`);
+
+        // 2. Build the post URL
+        const username = "UnknownUser"; // If you have a real username from your data, use it here
+        const postUrl = `https://twitter.com/${username}/status/${post.id}`;
+
+        // 3. Upsert into the replies table
+        await this.insertReplyRecord(
+          client,
+          post.author_id,
+          username,
+          post.id,
+          postUrl,
+          title
+        );
+        console.log(`✅ Logged reply to user ${post.author_id} in 'replies' table.`);
+      } catch (error) {
+        if (error instanceof Error) {
+          console.error(`❌ Failed to reply to tweet ID ${post.id}:`, error.message);
+        } else {
+          console.error(`❌ Unknown error replying to tweet ID ${post.id}:`, error);
+        }
+      }
+    }
+  }
+
+  private async insertReplyRecord(
+    client: VercelPoolClient,
+    userId: string,
+    username: string,
+    postId: string,
+    postUrl: string,
+    bookTitle: string
+  ): Promise<void> {
+    // ON CONFLICT on user_id ensures you can't reply to the same user more than once in 30 days
+    await client.sql`
+      INSERT INTO replies (user_id, username, post_id, post_url, book_title)
+      VALUES (${userId}, ${username}, ${postId}, ${postUrl}, ${bookTitle})
+      ON CONFLICT (user_id)
+      DO UPDATE
+        SET
+          replied_at = now(),
+          username = EXCLUDED.username,
+          post_id = EXCLUDED.post_id,
+          post_url = EXCLUDED.post_url,
+          book_title = EXCLUDED.book_title
+    `;
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  G) Main pipeline (if needed) for existing usage
+   * ---------------------------------------------------------
+   *
+   * This method now accepts an array of books from quarterHourly,
+   * rather than fetching random 50 inside. But you can keep or remove it
+   * as you like.
+   */
+  public async replyToAllBookMentions(
+    client: VercelPoolClient,
+    books: BookRow[]
+  ): Promise<void> {
+    console.log(`replyToAllBookMentions invoked with ${books.length} book(s)`);
+
+    if (!books.length) {
+      console.log("⚠️ No books found. Aborting...");
+      return;
+    }
+
+    // 1. Gather all matching tweets from these books
+    const allPosts: EnrichedTweet[] = [];
+
+    for (const { title, author, link } of books) {
+      try {
+        console.log(`🔍 Searching posts for "${title}" by "${author}"...`);
+        const posts = await this.searchPosts(title, author);
+
+        // Filter out suspicious usernames
+        const filteredPosts = this.filterSuspiciousUsernames(posts);
+        console.log(`   Found ${posts.length} posts, kept ${filteredPosts.length} after suspicious filter.`);
+
+        // Attach book metadata
+        const enriched = filteredPosts.map(tweet => ({
+          ...tweet,
+          book_title: title,
+          book_author: author,
+          book_link: link,
+        }));
+
+        allPosts.push(...enriched);
+      } catch (error) {
+        console.error(`❌ Error searching "${title}":`, error);
+      }
+    }
+
+    console.log(`✅ Total posts across these ${books.length} book(s): ${allPosts.length}`);
+
+    if (!allPosts.length) {
+      console.log("⚠️ No posts to process. Aborting...");
+      return;
+    }
+
+    // 2. Remove users already replied to in last 30 days
+    const postsFromNewUsers = await this.removePostsWithKnownUsers(allPosts, client);
+    console.log(`🧹 After removing known users: ${postsFromNewUsers.length} posts remain.`);
+
+    // 3. Select top 10
+    const topPosts = this.selectTopPosts(postsFromNewUsers);
+    console.log(`🏆 Chosen top ${topPosts.length} posts.`);
+
+    // 4. Reply to each top post with the correct book info
+    for (const top of topPosts) {
+      // Find the full data from `postsFromNewUsers` (including book_link, etc.)
+      const postData = postsFromNewUsers.find(p => p.id === top.id);
+      if (!postData) continue;
+
+      await this.replyToPosts(
+        [{ id: postData.id, author_id: postData.author_id }],
+        postData.book_link ?? '',
+        postData.book_title ?? '',
+        postData.book_author ?? '',
+        client
+      );
+    }
+
+    console.log("🎉 Finished replying to top posts.");
+  }
+}

@@ -1,11 +1,31 @@
-import bcrypt from 'bcrypt';
 import { db } from '@vercel/postgres';
 import { authors, books, quotes } from '../lib/publicdomainlibrary-data';
 
 const client = await db.connect();
 
-async function seedAuthors() {
+async function seedReplies() {
+  await client.sql`
+    CREATE TABLE replies (
+      user_id TEXT PRIMARY KEY,         -- Twitter user ID (one entry per user)
+      username TEXT,                    -- Twitter handle (optional, for logging)
+      post_id TEXT,                     -- Tweet ID that was replied to
+      post_url TEXT,                    -- Full URL to the tweet
+      book_title TEXT,                  -- Title of the book promoted
+      replied_at TIMESTAMPTZ NOT NULL DEFAULT now() -- Timestamp of the reply
+    );            
+  `;
+}
 
+async function seedSystemStettings() {
+    await client.sql`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+  `;
+}
+
+async function seedAuthors() {
   await client.sql`
     CREATE TABLE IF NOT EXISTS authors (
       id SERIAL PRIMARY KEY,

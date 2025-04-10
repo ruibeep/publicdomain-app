@@ -1,5 +1,5 @@
 import { db } from '@vercel/postgres';
-import { XClient, RedditClient, SocialMediaClient } from "../lib/socialMedia";
+import { XClient, RedditClient, SocialMediaClient } from "../../lib/socialMedia";
 import type { NextRequest } from 'next/server'
 
 function createSocialMediaClient(platform: string): SocialMediaClient {
@@ -47,12 +47,12 @@ export async function GET(request: NextRequest) {
     const authHeader = request.headers.get('authorization');
     if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
         return new Response('Unauthorized', {
-        status: 401,
+            status: 401,
         });
     }
 
     const databaseClient = await db.connect();
-    const platforms = ['X','reddit']; // Add more platforms as needed
+    const platforms = ['X', 'reddit']; // Add more platforms as needed
 
     try {
         await schedulePostForPlatforms(platforms, databaseClient);
