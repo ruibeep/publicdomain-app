@@ -12,4 +12,4 @@ jobs:
     steps:
       - name: Call the URL with authentication
         run: |
-          curl -s -H "Authorization: Bearer ${{ secrets.MY_SECRET_TOKEN }}" https://app.publicdomainlibrary.org > /dev/null
+          curl -s -H "Authorization: Bearer ${{ secrets.MY_SECRET_TOKEN }}" https://app.publicdomainlibrary.org/cron/quarterHourly/ > /dev/null
