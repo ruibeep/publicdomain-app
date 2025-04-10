@@ -2,12 +2,14 @@ name: Quarter Hourly Cron Job
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/15 * * * *"  # Every 15 minutes
+  workflow_dispatch:       # Optional: allows manual triggering
 
 jobs:
-  call-cron-endpoint:
+  visit-url:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Call /cron/quarterHourly endpoint
+      - name: Call the URL with authentication
         run: |
-          curl -X POST http://app.publicdomainlibrary.org/cron/quarterHourly
+          curl -s -H "Authorization: Bearer ${{ secrets.MY_SECRET_TOKEN }}" https://app.publicdomainlibrary.org > /dev/null
