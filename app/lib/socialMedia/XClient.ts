@@ -103,49 +103,44 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
    *  - Moves offset for next run
    */
   public async quarterHourly(client: VercelPoolClient): Promise<{
+    repliesInThisRun: number;
     repliesInLast24: number;
-    chunk: number;
-    offsetStart: number;
-    offsetEnd: number;
-    booksFound: number;
+    booksProcessed: number;
     totalBooks: number;
+    errorsCount: number;
+    errors: string[];
     message: string;
   }> {
-    // 0. Check how many replies in last 24 hours
+    const summary = {
+      repliesInThisRun: 0,
+      repliesInLast24: 0,
+      booksProcessed: 0,
+      totalBooks: 0,
+      errorsCount: 0,
+      errors: [] as string[],
+      message: '',
+    };
+  
     const countResult = await client.sql`
       SELECT COUNT(*) AS last24
       FROM replies
       WHERE replied_at >= NOW() - INTERVAL '24 hours'
     `;
-    const repliesInLast24 = parseInt(countResult.rows[0].last24, 10);
+    summary.repliesInLast24 = parseInt(countResult.rows[0].last24, 10);
   
-    // Summary object we'll build up
-    const summary = {
-      repliesInLast24,
-      chunk: 0,
-      offsetStart: 0,
-      offsetEnd: 0,
-      booksFound: 0,
-      totalBooks: 0,
-      message: '',
-    };
-  
-    if (repliesInLast24 >= 90) {
-      summary.message = `Already made ${repliesInLast24} replies in last 24 hours, skipping...`;
+    if (summary.repliesInLast24 >= 90) {
+      summary.message = `Already made ${summary.repliesInLast24} replies in last 24 hours, skipping...`;
       return summary;
     }
   
-    // 1. Check total books
     const totalRes = await client.sql`SELECT COUNT(*) AS total FROM books;`;
-    const totalBooks = parseInt(totalRes.rows[0].total, 10);
-    summary.totalBooks = totalBooks;
+    summary.totalBooks = parseInt(totalRes.rows[0].total, 10);
   
-    if (totalBooks === 0) {
+    if (summary.totalBooks === 0) {
       summary.message = 'No books in DB. Aborting quarterHourly...';
       return summary;
     }
   
-    // 2. Check if hour changed
     const now = new Date();
     const currentHour = now.getHours();
     const lastHour = await this.getCurrentBookSearchHour(client);
@@ -156,15 +151,11 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
       summary.message = `Hour changed from ${lastHour} to ${currentHour}. Reset offset to 0. `;
     }
   
-    // 3. Determine how many books per run
-    const chunk = Math.min(50, Math.ceil(totalBooks / 4));
-    summary.chunk = chunk;
+    const chunk = Math.min(50, Math.ceil(summary.totalBooks / 4));
+    summary.booksProcessed = chunk;
   
-    // 4. Get current offset
     const offsetStart = await this.getCurrentBookOffset(client);
-    summary.offsetStart = offsetStart;
   
-    // 5. Fetch next chunk of books
     const booksResult = await client.sql`
       SELECT b.title, b.link, a.name AS author
       FROM books b
@@ -174,28 +165,69 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
       OFFSET ${offsetStart}
     `;
     const books = booksResult.rows as BookRow[];
-    summary.booksFound = books.length;
   
     if (!books.length) {
-      // Possibly near end, reset offset
       await this.setCurrentBookOffset(client, 0);
       summary.message += `No books returned. Reset offset to 0.`;
       return summary;
     }
   
-    // 6. Search & reply
-    await this.replyToAllBookMentions(client, books);
-    summary.message += `Processed ${books.length} book(s). `;
+    try {
+      const allPosts: EnrichedTweet[] = [];
   
-    // 7. Advance offset
+      for (const { title, author, link } of books) {
+        try {
+          console.log(`🔍 Searching posts for "${title}" by "${author}"...`);
+          const posts = await this.searchPosts(title, author);
+          const filteredPosts = this.filterSuspiciousUsernames(posts);
+          const enriched = filteredPosts.map(tweet => ({
+            ...tweet,
+            book_title: title,
+            book_author: author,
+            book_link: link,
+          }));
+          allPosts.push(...enriched);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          summary.errors.push(`❌ Error searching "${title}" by "${author}": ${msg}`);
+        }
+      }
+  
+      const postsFromNewUsers = await this.removePostsWithKnownUsers(allPosts, client);
+      const topPosts = this.selectTopPosts(postsFromNewUsers);
+  
+      for (const top of topPosts) {
+        const postData = postsFromNewUsers.find(p => p.id === top.id);
+        if (!postData) continue;
+  
+        try {
+          await this.replyToPosts(
+            [{ id: postData.id, author_id: postData.author_id, username: postData.username }],
+            postData.book_link ?? '',
+            postData.book_title ?? '',
+            postData.book_author ?? '',
+            client
+          );
+          summary.repliesInThisRun++;
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          summary.errors.push(`❌ Error replying to post ID ${top.id}: ${msg}`);
+        }
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      summary.errors.push(`Unexpected error during reply process: ${msg}`);
+    }
+  
     let newOffset = offsetStart + chunk;
-    if (newOffset >= totalBooks) {
+    if (newOffset >= summary.totalBooks) {
       newOffset = 0;
     }
-    summary.offsetEnd = newOffset;
     await this.setCurrentBookOffset(client, newOffset);
   
-    summary.message += `Offset is now ${newOffset}. Done!`;
+    summary.errorsCount = summary.errors.length;
+    summary.message += `Processed ${books.length} book(s), made ${summary.repliesInThisRun} replies. Offset is now ${newOffset}. Done!`;
+  
     return summary;
   }
 
