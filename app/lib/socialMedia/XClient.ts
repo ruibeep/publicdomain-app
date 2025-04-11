@@ -521,7 +521,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
 
   private filterSuspiciousUsernames(tweets: EnrichedTweet[]): EnrichedTweet[] {
     return tweets.filter(tweet => {
-      if (tweet.followers < 50) {
+      if (tweet.followers < 100) {
         console.log(`🚫 Skipping @${tweet.username} — only ${tweet.followers} follower(s)`);
         return false;
       }
