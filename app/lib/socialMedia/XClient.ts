@@ -520,12 +520,9 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
   }
 
   private filterSuspiciousUsernames(tweets: EnrichedTweet[]): EnrichedTweet[] {
-    const isSuspiciousUsername = (username?: string): boolean =>
-      username ? /\d{4,}/.test(username) : true;
-
     return tweets.filter(tweet => {
-      if (isSuspiciousUsername(tweet.username)) {
-        console.log(`🚫 Skipping @${tweet.username} — suspicious username`);
+      if (tweet.followers < 50) {
+        console.log(`🚫 Skipping @${tweet.username} — only ${tweet.followers} follower(s)`);
         return false;
       }
       return true;
