@@ -8,11 +8,13 @@ on:
 jobs:
   visit-url:
     runs-on: ubuntu-latest
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
     steps:
       - name: Call the URL and log JSON response
         run: |
           echo "Calling endpoint at $(date)..."
-          response=$(curl -s -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://app.publicdomainlibrary.org/cron/quarterHourly)
+          response=$(curl -s -H "Authorization: Bearer $CRON_SECRET" https://app.publicdomainlibrary.org/cron/quarterHourly)
           echo "✅ API response:"
           echo "$response"
