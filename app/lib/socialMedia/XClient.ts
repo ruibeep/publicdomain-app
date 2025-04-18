@@ -530,16 +530,23 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
   }
 
   private selectTopPosts(tweets: EnrichedTweet[]): { id: string; author_id: string }[] {
-    return tweets
-      .map(tweet => ({
-        id: tweet.id,
-        author_id: tweet.author_id,
-        // Score = likes + followers
-        score: (tweet.public_metrics?.like_count ?? 0) + tweet.followers,
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10)
-      .map(({ id, author_id }) => ({ id, author_id }));
+    const scored = tweets.map(t => ({
+      id: t.id,
+      author_id: t.author_id,
+      score: (t.public_metrics?.like_count ?? 0) + t.followers,
+    })).sort((a, b) => b.score - a.score);
+  
+    const seen = new Set<string>();
+    const uniqueByUser: { id: string; author_id: string }[] = [];
+  
+    for (const t of scored) {
+      if (!seen.has(t.author_id)) {
+        seen.add(t.author_id);
+        uniqueByUser.push({ id: t.id, author_id: t.author_id });
+        if (uniqueByUser.length === 10) break;   // keep top‑10 unique users
+      }
+    }
+    return uniqueByUser;
   }
 
   /**
