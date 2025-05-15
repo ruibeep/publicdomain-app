@@ -1,5 +1,5 @@
 import { db } from '@vercel/postgres';
-import { XClient, RedditClient, SocialMediaClient } from "../lib/socialMedia";
+import { XClient, RedditClient, SocialMediaClient } from "@/app/lib/socialMedia";
 import type { NextRequest } from 'next/server'
 
 

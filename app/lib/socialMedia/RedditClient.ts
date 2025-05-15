@@ -330,14 +330,14 @@ export class RedditClient extends BaseSocialMediaClient implements SocialMediaCl
                 const combinedText = `${post.title}\n${post.selftext || ""}`;
                 
                 // Print combinedText for debugging
-                console.log(`Combined text for post ${post.id}:\n${combinedText}`);
+                // console.log(`Combined text for post ${post.id}:\n${combinedText}`);
 
                 // Use suggestBooks instead of composeReply
                 const suggestion = await this.suggestBooks(combinedText);
                 const replyMessage = await this.composeReply(suggestion, dbclient);
-                console.log('Reply message:', replyMessage);
+                // console.log('Reply message:', replyMessage);
                 if (replyMessage && replyMessage.trim() !== "") {
-                    await post.reply(replyMessage);
+                    await (post.reply(replyMessage) as unknown as Promise<void>);
                     replyCount++;
                     console.log(`Replied to post: ${post.id}\n`);
                 } else {
