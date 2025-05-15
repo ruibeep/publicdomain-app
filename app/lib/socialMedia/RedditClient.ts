@@ -338,6 +338,7 @@ export class RedditClient extends BaseSocialMediaClient implements SocialMediaCl
                 // console.log('Reply message:', replyMessage);
                 if (replyMessage && replyMessage.trim() !== "") {
                     await (post.reply(replyMessage) as unknown as Promise<void>);
+                    await (post.upvote() as unknown as Promise<void>);
                     replyCount++;
                     console.log(`Replied to post: ${post.id}\n`);
                 } else {
