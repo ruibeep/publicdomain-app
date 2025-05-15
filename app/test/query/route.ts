@@ -1,5 +1,5 @@
 import { db } from '@vercel/postgres';
-import { authors, books, quotes } from '../lib/publicdomainlibrary-data';
+import { authors, books, quotes } from '../../lib/publicdomainlibrary-data';
 
 const client = await db.connect();
 
