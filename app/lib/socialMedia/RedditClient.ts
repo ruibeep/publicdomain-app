@@ -196,14 +196,45 @@ export class RedditClient extends BaseSocialMediaClient implements SocialMediaCl
         }
     }
 
-    async quarterHourly(client: VercelPoolClient): Promise<string> {
-        const numReplies = await this.replyLatestBookSuggestions(client, "suggestmeabook");
-        return `Replied to ${numReplies} book suggestion${numReplies === 1 ? '' : 's'}.`;
-        //const content = await this.suggestBooks("Looking for a book where women are the main characters");
-        //return this.composeReply(content, client);
+    /**
+     * Posts a reply to a Reddit post with the book suggestion and upvotes the post
+     * @param dbclient - Database client
+     * @param post - The Reddit post to reply to
+     * @param replyMessage - The formatted reply message to post
+     * @returns Promise that resolves when the reply is posted
+     */
+    async postBookSuggestion(
+        post: snoowrap.Submission,
+        replyMessage: string
+    ): Promise<void> {
+        try {
+            await (post.reply(replyMessage) as unknown as Promise<void>);
+            await (post.upvote() as unknown as Promise<void>);
+            console.log(`Posted reply to post: ${post.id}\n`);
+        } catch (error) {
+            console.error(`Failed to post reply to ${post.id}:`, error);
+            throw error;
+        }
+    }
 
-        //return await this.suggestBooks("Looking for an autobiography of a politician", client);
-        //return await this.replyLatestBookSuggestions(client, "suggestmeabook");       
+    async quarterHourly(dbclient: VercelPoolClient): Promise<string> {
+        const bookRequests = await this.getLatestBookRequests(dbclient, "suggestmeabook");
+        const bookSuggestions = await this.suggestBooksForRequests(bookRequests);
+        const bookSuggestion = await this.selectBookRequest(bookSuggestions);
+
+        if (bookSuggestion.length > 0) {
+            const post = bookSuggestion[0];
+            const suggestion = bookSuggestions.find(s => s.post.id === post.id)?.suggestions;
+            if (suggestion) {
+                const replyMessage = await this.composeReply(suggestion, dbclient);
+                if (replyMessage && replyMessage.trim() !== "") {
+                    await this.postBookSuggestion(post, replyMessage);
+                    return `Replied to book suggestion.`;
+                }
+            }
+        }
+        
+        return `No suitable book suggestions found.`;
     }
 
     async suggestBooks(request: string): Promise<string>  {
@@ -309,49 +340,8 @@ export class RedditClient extends BaseSocialMediaClient implements SocialMediaCl
             return "";
         }
     }
-      
 
-    /**
-     * Fetches the latest book suggestions and replies with a composed message to each.
-     * Uses composeReply to generate the reply. If composeReply returns an empty string, does not reply.
-     * Returns the number of replies actually made.
-     */
-    async replyLatestBookSuggestions(
-        dbclient: VercelPoolClient,
-        subreddit: string = "suggestmeabook",
-        limit: number = 10
-    ): Promise<number> {
-        const suggestions = await this.getLatestBookSuggestions(dbclient, subreddit, limit);
-    
-        let replyCount = 0;
-        for (const post of suggestions) {
-            try {
-                // Concatenate title and selftext, separated by a newline
-                const combinedText = `${post.title}\n${post.selftext || ""}`;
-                
-                // Print combinedText for debugging
-                // console.log(`Combined text for post ${post.id}:\n${combinedText}`);
-
-                // Use suggestBooks instead of composeReply
-                const suggestion = await this.suggestBooks(combinedText);
-                const replyMessage = await this.composeReply(suggestion, dbclient);
-                // console.log('Reply message:', replyMessage);
-                if (replyMessage && replyMessage.trim() !== "") {
-                    await (post.reply(replyMessage) as unknown as Promise<void>);
-                    await (post.upvote() as unknown as Promise<void>);
-                    replyCount++;
-                    console.log(`Replied to post: ${post.id}\n`);
-                } else {
-                    console.log(`No valid reply for post: ${post.id}, skipping.`);
-                }
-            } catch (error) {
-                console.error(`Failed to reply to post ${post.id}:`, error);
-            }
-        }
-        return replyCount;
-    }
-
-    async getLatestBookSuggestions(
+    async getLatestBookRequests(
         dbclient: VercelPoolClient,
         subreddit: string = "suggestmeabook",
         limit: number = 10
@@ -375,6 +365,85 @@ export class RedditClient extends BaseSocialMediaClient implements SocialMediaCl
         `;
 
         return newPosts;
+    }
+
+    /**
+     * Selects the book request with the highest overall score from the suggestions
+     * @param suggestions - Array of objects containing posts and their suggestions
+     * @returns Array containing the selected post with the highest score, or empty array if no post meets threshold
+     */
+    async selectBookRequest(
+        suggestions: Array<{
+            post: snoowrap.Submission;
+            suggestions: string;
+        }>
+    ): Promise<snoowrap.Submission[]> {
+        let highestScore = 0;
+        let selectedPost: snoowrap.Submission | null = null;
+
+        for (const { post, suggestions: suggestionStr } of suggestions) {
+            try {
+                const parsed = JSON.parse(suggestionStr);
+                if (parsed.books && parsed.books.length > 0) {
+                    // Get the highest score from the suggested books
+                    const maxScore = Math.max(...parsed.books.map((book: any) => book.overall_score || 0));
+                    
+                    if (maxScore > highestScore) {
+                        highestScore = maxScore;
+                        selectedPost = post;
+                    }
+                }
+            } catch (error) {
+                console.error(`Error analyzing suggestions for post ${post.id}:`, error);
+                continue;
+            }
+        }
+
+        // If no post was selected (all had scores below threshold or errors), return empty array
+        if (!selectedPost) {
+            console.log('No posts met the score threshold');
+            return [];
+        }
+
+        console.log(`Selected post ${selectedPost.id} with score ${highestScore}`);
+        return [selectedPost];
+    }
+
+    /**
+     * Processes multiple book requests and returns an array of suggestions
+     * @param bookRequests - Array of Reddit posts containing book requests
+     * @returns Array of objects containing the post and its book suggestions
+     */
+    async suggestBooksForRequests(bookRequests: snoowrap.Submission[]): Promise<Array<{
+        post: snoowrap.Submission;
+        suggestions: string;
+    }>> {
+        const suggestions: Array<{
+            post: snoowrap.Submission;
+            suggestions: string;
+        }> = [];
+
+        for (const post of bookRequests) {
+            try {
+                const combinedText = `${post.title}\n${post.selftext || ""}`;
+                const suggestion = await this.suggestBooks(combinedText);
+                
+                // Only add if we got valid suggestions
+                const parsed = JSON.parse(suggestion);
+                if (parsed.books && parsed.books.length > 0) {
+                    suggestions.push({
+                        post,
+                        suggestions: suggestion
+                    });
+                }
+            } catch (error) {
+                console.error(`Error getting suggestions for post ${post.id}:`, error);
+                continue;
+            }
+        }
+
+        console.log(`Suggestmeabook:Processed ${bookRequests.length} requests, found ${suggestions.length} valid suggestions`);
+        return suggestions;
     }
 
 }
