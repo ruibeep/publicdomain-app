@@ -54,13 +54,13 @@ export async function GET(request: NextRequest) {
     }
 
     const client = createSocialMediaClient('X');
-    //const redditClient = createSocialMediaClient('reddit');
+    const redditClient = createSocialMediaClient('reddit');
     const databaseClient = await db.connect();
   
     try {
       console.time('⏱ Script runtime');
       const summaryX = await client.quarterHourly(databaseClient);
-      //const summaryRedit = await redditClient.quarterHourly(databaseClient);
+      const summaryRedit = await redditClient.quarterHourly(databaseClient);
       console.timeEnd('⏱ Script runtime');
       
       const finishedAt = new Date().toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' });
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
         success: true,
         finishedAt,
         summaryX,
-        //summaryRedit
+        summaryRedit
       });
     } catch (error) {
       if (error instanceof Error) {
