@@ -52,8 +52,8 @@ export async function GET(request: NextRequest) {
     }
 
     const databaseClient = await db.connect();
-    // const platforms = ['X', 'reddit']; // Add more platforms as needed
-    const platforms = ['X'];
+    const platforms = ['X', 'reddit']; // Add more platforms as needed
+    // const platforms = ['X'];
     try {
         await schedulePostForPlatforms(platforms, databaseClient);
         await publishScheduledPosts(platforms, databaseClient);
