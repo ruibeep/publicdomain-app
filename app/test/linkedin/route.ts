@@ -11,11 +11,27 @@ export async function GET(request: NextRequest) {
     if (!orgId) {
       return NextResponse.json({ success: false, error: 'LINKEDIN_ORG_ID not set' }, { status: 500 });
     }
+    
     const client = new LinkedInClient(accessToken, orgId);
-    // Example book link
-    const bookLink = 'https://publicdomainlibrary.org/book/example';
-    await client.commentOnLatestCompanyPost(bookLink);
-    return NextResponse.json({ success: true, message: 'Tried to comment on latest company post with book link.' });
+    
+    // Test the commentPost method with a sample post ID and book link
+    // Note: You'll need to replace this with a real LinkedIn post URN for testing
+    const samplePostId = 'urn:li:activity:1234567890'; // Replace with actual post URN
+    const bookLink = 'https://publicdomainlibrary.org/en/ebooks/dubliners';
+    
+    try {
+      await client.commentPost(bookLink, samplePostId);
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Successfully tested commentPost method with book link.' 
+      });
+    } catch (commentError) {
+      return NextResponse.json({ 
+        success: false, 
+        error: `Comment test failed: ${commentError instanceof Error ? commentError.message : 'Unknown error'}`,
+        note: 'This is expected if the sample post ID is not valid. Replace with a real LinkedIn post URN for actual testing.'
+      }, { status: 500 });
+    }
   } catch (error) {
     if (error instanceof Error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
