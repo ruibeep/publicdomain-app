@@ -27,33 +27,157 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
 
   /**
    * ---------------------------------------------------------
-   *  SCHEDULE POST
+   *  SCHEDULE POST (similar to XClient)
    * ---------------------------------------------------------
    */
   public async schedulePost(client: VercelPoolClient): Promise<any[]> {
-    console.log('LinkedIn schedulePost called - no specific implementation needed');
-    return [];
+    console.log('Step 1: Check if there are already LinkedIn posts scheduled for tomorrow...');
+    const existingPosts = await client.sql`
+      SELECT 1
+      FROM posts
+      WHERE status = 'scheduled'
+        AND platform LIKE '%LinkedIn%'
+        AND DATE(published_date) = CURRENT_DATE + INTERVAL '1 day';
+    `;
+
+    if (existingPosts.rows.length > 0) {
+      console.log('   A LinkedIn post for tomorrow already exists. Aborting...');
+      return [];
+    } else {
+      console.log('   No scheduled LinkedIn posts found for tomorrow. Proceeding...');
+    }
+
+    console.log('Step 2: Fetch the next quote to publish...');
+    const quoteToPostResult = await client.sql`
+      WITH book_quote_counts AS (
+        SELECT
+          b.id AS book_id,
+          b.title AS book_title,
+          b.cover AS book_cover,
+          a.name AS author_name,
+          COUNT(p.id) AS book_post_count
+        FROM books b
+        JOIN authors a ON b.author_id = a.id
+        LEFT JOIN quotes q ON b.id = q.book_id
+        LEFT JOIN posts p ON q.id = p.quote_id
+        GROUP BY
+          b.id, b.title, b.cover, a.name
+      ),
+      quote_post_counts AS (
+        SELECT
+          q.id AS quote_id,
+          q.quote,
+          q.popularity,
+          q.book_id,
+          COUNT(p.id) AS quote_post_count
+        FROM quotes q
+        LEFT JOIN posts p ON q.id = p.quote_id
+        GROUP BY
+          q.id, q.quote, q.popularity, q.book_id
+      ),
+      filtered_books AS (
+        SELECT
+          bq.book_id,
+          bq.book_title,
+          bq.book_cover,
+          bq.author_name,
+          MIN(qpc.quote_post_count) AS min_quote_post_count,
+          bq.book_post_count
+        FROM book_quote_counts bq
+        JOIN quote_post_counts qpc ON bq.book_id = qpc.book_id
+        GROUP BY
+          bq.book_id, bq.book_title, bq.book_cover, bq.author_name, bq.book_post_count
+        ORDER BY
+          bq.book_post_count ASC
+      ),
+      final_quotes AS (
+        SELECT
+          qpc.quote_id,
+          qpc.quote,
+          qpc.book_id,
+          fb.book_title,
+          fb.book_cover,
+          fb.author_name,
+          qpc.popularity
+        FROM filtered_books fb
+        JOIN quote_post_counts qpc ON fb.book_id = qpc.book_id
+        WHERE qpc.quote_post_count = fb.min_quote_post_count
+        ORDER BY
+          fb.book_post_count ASC,
+          qpc.quote_post_count ASC,
+          qpc.popularity DESC
+      )
+      SELECT
+        quote_id,
+        quote,
+        book_id,
+        book_title,
+        book_cover,
+        author_name,
+        popularity
+      FROM final_quotes
+      LIMIT 1;
+    `;
+
+    const quoteToPost = quoteToPostResult.rows;
+    if (!quoteToPost.length) {
+      console.log('   No quotes available to schedule. Aborting...');
+      return [];
+    } else {
+      console.log('   Next Quote to post:', quoteToPost[0].quote);
+    }
+
+    console.log('Step 3: Build the post text dynamically ...');
+    const item = quoteToPost[0];
+    const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name}`;
+    console.log('  Post text:', postText);
+
+    console.log('Step 4: Insert the new LinkedIn post for tomorrow ...');
+    const data = await client.sql`
+      INSERT INTO posts (quote_id, text, image_link, platform, status, published_date)
+      VALUES (
+        ${item.quote_id},
+        ${postText},
+        ${item.book_cover},
+        'LinkedIn',
+        'scheduled',
+        (CURRENT_DATE + INTERVAL '1 day')
+      )
+      RETURNING id;
+    `;
+
+    console.log(`   Scheduled 1 LinkedIn post for tomorrow: Quote ID ${item.quote_id}, Text: "${postText}".`);
+    return data.rows;
   }
 
   /**
    * ---------------------------------------------------------
-   *  PUBLISH SCHEDULED POSTS
+   *  PUBLISH SCHEDULED POSTS (similar to XClient)
    * ---------------------------------------------------------
    */
   public async publishScheduledPosts(client: VercelPoolClient): Promise<void> {
     try {
       console.log('Publishing scheduled LinkedIn posts...');
       const scheduledPosts = await this.fetchScheduledPosts(client);
-      
+      if (!scheduledPosts.length) {
+        console.log('No posts scheduled for today.');
+        return;
+      }
+      console.log(`Found ${scheduledPosts.length} posts for today. Posting...`);
       for (const post of scheduledPosts) {
         try {
-          await this.postToLinkedIn(post.text, post.image_link);
+          if (post.image_link) {
+            await this.postWithImage(post.text, post.image_link);
+          } else {
+            await this.postToLinkedIn(post.text);
+          }
           await this.updatePostStatus(client, post.id);
           console.log(`✅ Published LinkedIn post ID: ${post.id}`);
         } catch (error) {
           console.error(`❌ Failed to publish LinkedIn post ID ${post.id}:`, error);
         }
       }
+      console.log('All scheduled LinkedIn posts for today have been processed.');
     } catch (error) {
       console.error('Error publishing scheduled LinkedIn posts:', error);
       throw error;
@@ -62,23 +186,76 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
 
   /**
    * ---------------------------------------------------------
-   *  POST TO LINKEDIN
+   *  POST TO LINKEDIN (with optional image upload)
    * ---------------------------------------------------------
    */
   public async postToLinkedIn(text: string, imageLink?: string | null): Promise<void> {
     try {
       console.log('Posting to LinkedIn:', text);
-      
-      // Create the post data according to LinkedIn UGC Posts API
-      const postData = {
-        author: `urn:li:person:${process.env.LINKEDIN_PERSON_ID}`,
+      let mediaAssetUrn: string | undefined = undefined;
+      if (imageLink) {
+        // 1. Register the image upload
+        const registerRes = await fetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            registerUploadRequest: {
+              owner: `urn:li:organization:${this.orgId}`,
+              recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+              serviceRelationships: [
+                {
+                  identifier: 'urn:li:userGeneratedContent',
+                  relationshipType: 'OWNER'
+                }
+              ],
+              supportedUploadMechanism: ['SYNCHRONOUS_UPLOAD']
+            }
+          })
+        });
+        const registerData = await registerRes.json();
+        if (!registerRes.ok) {
+          throw new Error(`Failed to register image upload: ${JSON.stringify(registerData)}`);
+        }
+        const uploadUrl = registerData.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
+        mediaAssetUrn = registerData.value.asset;
+
+        // 2. Download the image and upload to LinkedIn
+        const imageBuffer = await this.downloadImage(imageLink);
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'image/png'
+          },
+          body: imageBuffer
+        });
+        if (!uploadRes.ok) {
+          const uploadErr = await uploadRes.text();
+          throw new Error(`Failed to upload image to LinkedIn: ${uploadErr}`);
+        }
+      }
+
+      // 3. Create the post referencing the asset URN if present
+      const postBody: any = {
+        author: `urn:li:organization:${this.orgId}`,
         lifecycleState: 'PUBLISHED',
         specificContent: {
           'com.linkedin.ugc.ShareContent': {
-            shareCommentary: {
-              text: text
-            },
-            shareMediaCategory: 'NONE'
+            shareCommentary: { text },
+            shareMediaCategory: mediaAssetUrn ? 'IMAGE' : 'NONE',
+            ...(mediaAssetUrn && {
+              media: [
+                {
+                  status: 'READY',
+                  description: { text: 'Image post' },
+                  media: mediaAssetUrn,
+                  title: { text: 'Image' }
+                }
+              ]
+            })
           }
         },
         visibility: {
@@ -86,20 +263,19 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
         }
       };
 
-      // If there's an image, add it to the post
-      if (imageLink) {
-        // For LinkedIn, you typically need to upload the image first
-        // This is a simplified version - you might need to implement image upload
-        console.log('Image upload not implemented yet - posting text only');
-      }
-
-      // Make the API call to create the post
-      const response = await this.linkedInApi.create({
-        resourcePath: '/v2/ugcPosts',
-        entity: postData,
-        accessToken: this.accessToken
+      const res = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'X-Restli-Protocol-Version': '2.0.0',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(postBody)
       });
-      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(`Failed to post to LinkedIn: ${JSON.stringify(data)}`);
+      }
       console.log('✅ Successfully posted to LinkedIn');
     } catch (error) {
       console.error('❌ Error posting to LinkedIn:', error);

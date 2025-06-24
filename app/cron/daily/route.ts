@@ -1,5 +1,6 @@
 import { db } from '@vercel/postgres';
 import { XClient, RedditClient, SocialMediaClient } from "../../lib/socialMedia";
+import { LinkedInClient } from "../../lib/socialMedia/LinkedInClient";
 import type { NextRequest } from 'next/server'
 
 function createSocialMediaClient(platform: string): SocialMediaClient {
@@ -21,6 +22,12 @@ function createSocialMediaClient(platform: string): SocialMediaClient {
                 accessToken: process.env.X_ACCESS_TOKEN?.trim() || '',
                 accessSecret: process.env.X_ACCESS_TOKEN_SECRET?.trim() || '',
             });
+        case 'LinkedIn':
+            console.log('Creating LinkedIn Client ...');
+            return new LinkedInClient(
+                process.env.LINKEDIN_ACCESS_TOKEN || '',
+                process.env.LINKEDIN_ORG_ID || ''
+            );
         default:
             throw new Error(`Unsupported platform: ${platform}`);
     }
@@ -52,8 +59,8 @@ export async function GET(request: NextRequest) {
     }
 
     const databaseClient = await db.connect();
-    const platforms = ['X', 'reddit']; // Add more platforms as needed
-    // const platforms = ['X'];
+    const platforms = ['X', 'reddit', 'LinkedIn']; // Add more platforms as needed
+    // const platforms = ['LinkedIn'];
     try {
         await schedulePostForPlatforms(platforms, databaseClient);
         await publishScheduledPosts(platforms, databaseClient);
