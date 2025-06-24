@@ -372,8 +372,16 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
 
       for (const post of scheduledPosts) {
         try {
-          await this.postToTwitter(post.text, post.image_link);
+          const tweetResponse = await this.postToTwitter(post.text, post.image_link);
           await this.updatePostStatus(client, post.id);
+          
+          // Comment on the tweet with the book link if available
+          if (post.book_link && tweetResponse.data?.id) {
+            await this.commentPost(post.book_link, tweetResponse.data.id);
+          } else if (!tweetResponse.data?.id) {
+            console.warn('Could not determine tweet ID for commenting.');
+          }
+          
           console.log(`Post ID ${post.id} published successfully.`);
         } catch (error) {
           if (error instanceof Error) {
@@ -398,11 +406,24 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
 
   async fetchScheduledPosts(client: VercelPoolClient): Promise<any[]> {
     const postsForToday = await client.sql`
-      SELECT id, quote_id, text, image_link
+      SELECT 
+        posts.id, 
+        posts.quote_id, 
+        posts.text, 
+        posts.image_link,
+        COALESCE(books_direct.link, books_via_quote.link) AS book_link
       FROM posts
-      WHERE status = 'scheduled'
-        AND platform LIKE '%X%'
-        AND DATE(published_date) = CURRENT_DATE;
+      -- Direct join if the post has a book_id
+      LEFT JOIN 
+        books AS books_direct ON posts.book_id = books_direct.id
+      -- Join via quotes if the post has a quote_id
+      LEFT JOIN 
+        quotes ON posts.quote_id = quotes.id
+      LEFT JOIN 
+        books AS books_via_quote ON quotes.book_id = books_via_quote.id
+      WHERE posts.status = 'scheduled'
+        AND posts.platform LIKE '%X%'
+        AND DATE(posts.published_date) = CURRENT_DATE;
     `;
     return postsForToday.rows;
   }
@@ -413,6 +434,25 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
       SET status = 'published'
       WHERE id = ${postId};
     `;
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  COMMENT ON OWN POST (with book link)
+   * ---------------------------------------------------------
+   */
+  async commentPost(bookLink: string, tweetId: string): Promise<void> {
+    try {
+      const utmLink = `${bookLink}?utm_source=t.co&utm_medium=referral&utm_campaign=x-scheduled-posts`;
+      const commentText = `Download the ebook for free: ${utmLink}`;
+      
+      // Reply to the tweet with the book link
+      const response = await this.XApi.v2.reply(commentText, tweetId);
+      console.log('✅ Successfully commented on tweet with book link:', response);
+    } catch (error) {
+      console.error('❌ Failed to comment on tweet:', error);
+      // Don't throw error to avoid breaking the main posting flow
+    }
   }
 
   /**

@@ -134,9 +134,10 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
 
     console.log('Step 4: Insert the new LinkedIn post for tomorrow ...');
     const data = await client.sql`
-      INSERT INTO posts (quote_id, text, image_link, platform, status, published_date)
+      INSERT INTO posts (quote_id, book_id, text, image_link, platform, status, published_date)
       VALUES (
         ${item.quote_id},
+        ${item.book_id},
         ${postText},
         ${item.book_cover},
         'LinkedIn',
@@ -166,12 +167,24 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
       console.log(`Found ${scheduledPosts.length} posts for today. Posting...`);
       for (const post of scheduledPosts) {
         try {
+          let postResponse;
+          let postUrn;
           if (post.image_link) {
-            await this.postWithImage(post.text, post.image_link);
+            postResponse = await this.postWithImage(post.text, post.image_link);
+            // postWithImage returns the LinkedIn API response, which should contain the URN
+            postUrn = postResponse.id || postResponse.urn || postResponse.activity || postResponse.entityUrn || postResponse["id"];
           } else {
-            await this.postToLinkedIn(post.text);
+            postResponse = await this.postToLinkedIn(post.text);
+            // postToLinkedIn does not currently return the URN, so we need to update it to return the LinkedIn post URN
+            postUrn = postResponse && (postResponse.id || postResponse.urn || postResponse.activity || postResponse.entityUrn || postResponse["id"]);
           }
           await this.updatePostStatus(client, post.id);
+          // Use book_link from the scheduled post (already joined in fetchScheduledPosts)
+          if (post.book_link && postUrn) {
+            await this.commentPost(post.book_link, postUrn);
+          } else if (!postUrn) {
+            console.warn('Could not determine LinkedIn post URN for commenting.');
+          }
           console.log(`✅ Published LinkedIn post ID: ${post.id}`);
         } catch (error) {
           console.error(`❌ Failed to publish LinkedIn post ID ${post.id}:`, error);
@@ -189,7 +202,7 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
    *  POST TO LINKEDIN (with optional image upload)
    * ---------------------------------------------------------
    */
-  public async postToLinkedIn(text: string, imageLink?: string | null): Promise<void> {
+  public async postToLinkedIn(text: string, imageLink?: string | null): Promise<any> {
     try {
       console.log('Posting to LinkedIn:', text);
       let mediaAssetUrn: string | undefined = undefined;
@@ -277,6 +290,7 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
         throw new Error(`Failed to post to LinkedIn: ${JSON.stringify(data)}`);
       }
       console.log('✅ Successfully posted to LinkedIn');
+      return data;
     } catch (error) {
       console.error('❌ Error posting to LinkedIn:', error);
       throw error;
@@ -452,4 +466,39 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
     }
     return data;
   }
-} 
+
+  /**
+   * ---------------------------------------------------------
+   *  COMMENT ON A COMPANY POST AS ORG (with book link)
+   * ---------------------------------------------------------
+   */
+  public async commentPost(bookLink: string, postId: string): Promise<void> {
+    const orgUrn = `urn:li:organization:${this.orgId}`;
+    // Add UTM parameters to the book link for tracking
+    const utmLink = `${bookLink}?utm_source=linkedin.com&utm_medium=referral&utm_campaign=linkedin-scheduled-posts`;
+    
+    // Add a comment as the organization
+    const commentBody = {
+      actor: orgUrn,
+      object: postId,
+      message: {
+        text: `Download the ebook for free: ${utmLink}`
+      }
+    };
+    const commentRes = await fetch('https://api.linkedin.com/v2/socialActions/' + encodeURIComponent(postId) + '/comments', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`,
+        'X-Restli-Protocol-Version': '2.0.0',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(commentBody)
+    });
+    const commentData = await commentRes.json();
+    if (!commentRes.ok) {
+      console.error('Failed to comment on post:', commentData);
+    } else {
+      console.log('✅ Successfully commented on post:', commentData);
+    }
+  }
+}
