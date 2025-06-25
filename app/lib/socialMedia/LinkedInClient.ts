@@ -23,6 +23,7 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
    */
   public async initialize(): Promise<void> {
     try {
+      // First, get the access token from database
       const result = await this.dbClient.sql`
         SELECT value 
         FROM system_settings 
@@ -35,9 +36,125 @@ export class LinkedInClient extends BaseSocialMediaClient implements SocialMedia
       
       this.accessToken = result.rows[0].value;
       console.log('✅ LinkedIn access token loaded from database');
+      
+      // Check if the access token is valid
+      const isTokenValid = await this.validateToken();
+      if (!isTokenValid) {
+        console.log('⚠️ LinkedIn access token is invalid, attempting to refresh...');
+        await this.refreshAccessToken();
+      } else {
+        console.log('✅ LinkedIn access token is valid');
+      }
     } catch (error) {
-      console.error('❌ Failed to load LinkedIn access token from database:', error);
-      throw new Error('LinkedIn access token could not be retrieved from database');
+      console.error('❌ Failed to initialize LinkedIn client:', error);
+      throw new Error('LinkedIn client could not be initialized');
+    }
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  VALIDATE ACCESS TOKEN
+   * ---------------------------------------------------------
+   */
+  private async validateToken(): Promise<boolean> {
+    try {
+      // Make a lightweight API call to test the token
+      const response = await fetch(`https://api.linkedin.com/v2/organizations/${this.orgId}`, {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'X-Restli-Protocol-Version': '2.0.0'
+        }
+      });
+      
+      return response.ok;
+    } catch (error) {
+      console.error('❌ Error validating LinkedIn access token:', error);
+      return false;
+    }
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  REFRESH ACCESS TOKEN USING REFRESH TOKEN
+   * ---------------------------------------------------------
+   */
+  private async refreshAccessToken(): Promise<void> {
+    try {
+      // Get refresh token from database
+      const refreshTokenResult = await this.dbClient.sql`
+        SELECT value 
+        FROM system_settings 
+        WHERE key = 'linkedin_refresh_token'
+      `;
+      
+      if (refreshTokenResult.rows.length === 0) {
+        throw new Error('LinkedIn refresh token not found in system_settings table');
+      }
+      
+      const refreshToken = refreshTokenResult.rows[0].value;
+      const clientId = process.env.LINKEDIN_CLIENT_ID;
+      const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+      
+      if (!clientId || !clientSecret) {
+        throw new Error('LinkedIn client ID or client secret not found in environment variables');
+      }
+      
+      // Exchange refresh token for new access token
+      const response = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+          client_id: clientId,
+          client_secret: clientSecret
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(`Failed to refresh LinkedIn access token: ${errorData}`);
+      }
+      
+      const tokenData = await response.json();
+      
+      if (!tokenData.access_token) {
+        throw new Error('No access token received from LinkedIn refresh request');
+      }
+      
+      // Update the access token in database
+      await this.updateAccessTokenInDatabase(tokenData.access_token);
+      
+      // Update refresh token if a new one was provided
+      if (tokenData.refresh_token) {
+        await this.updateRefreshTokenInDatabase(tokenData.refresh_token);
+      }
+      
+      console.log('✅ LinkedIn access token refreshed successfully');
+    } catch (error) {
+      console.error('❌ Failed to refresh LinkedIn access token:', error);
+      throw new Error('LinkedIn access token refresh failed');
+    }
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  UPDATE REFRESH TOKEN IN DATABASE
+   * ---------------------------------------------------------
+   */
+  private async updateRefreshTokenInDatabase(newRefreshToken: string): Promise<void> {
+    try {
+      await this.dbClient.sql`
+        UPDATE system_settings 
+        SET value = ${newRefreshToken}
+        WHERE key = 'linkedin_refresh_token'
+      `;
+      console.log('✅ LinkedIn refresh token updated in database');
+    } catch (error) {
+      console.error('❌ Failed to update LinkedIn refresh token in database:', error);
+      throw new Error('LinkedIn refresh token could not be updated in database');
     }
   }
 
