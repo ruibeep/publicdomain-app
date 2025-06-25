@@ -11,16 +11,7 @@ function createSocialMediaClient(platform: string): SocialMediaClient {
         username: process.env.REDDIT_USERNAME || '',
         password: process.env.REDDIT_PASSWORD || '',
         userAgent: process.env.REDDIT_USER_AGENT || '',
-      });
-    /*
-    case 'twitter':
-      return new TwitterClient({
-        appKey: process.env.TWITTER_API_KEY || '',
-        appSecret: process.env.TWITTER_API_SECRET || '',
-        accessToken: process.env.TWITTER_ACCESS_TOKEN || '',
-        accessSecret: process.env.TWITTER_ACCESS_SECRET || '',
-      });
-      */      
+      });   
     default:
       throw new Error(`Unsupported platform: ${platform}`);
   }

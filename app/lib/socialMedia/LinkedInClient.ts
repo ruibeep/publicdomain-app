@@ -5,14 +5,60 @@ import { RestliClient } from 'linkedin-api-client';
 export class LinkedInClient extends BaseSocialMediaClient implements SocialMediaClient {
   protected platform = 'LinkedIn';
   private linkedInApi: RestliClient;
-  private accessToken: string;
+  private accessToken: string = '';
   private orgId: string;
+  private dbClient: VercelPoolClient;
 
-  constructor(accessToken: string, orgId: string) {
+  constructor(dbClient: VercelPoolClient, orgId: string) {
     super();
-    this.accessToken = accessToken;
     this.orgId = orgId;
+    this.dbClient = dbClient;
     this.linkedInApi = new RestliClient();
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  INITIALIZE ACCESS TOKEN FROM DATABASE
+   * ---------------------------------------------------------
+   */
+  public async initialize(): Promise<void> {
+    try {
+      const result = await this.dbClient.sql`
+        SELECT value 
+        FROM system_settings 
+        WHERE key = 'linkedin_access_token'
+      `;
+      
+      if (result.rows.length === 0) {
+        throw new Error('LinkedIn access token not found in system_settings table');
+      }
+      
+      this.accessToken = result.rows[0].value;
+      console.log('✅ LinkedIn access token loaded from database');
+    } catch (error) {
+      console.error('❌ Failed to load LinkedIn access token from database:', error);
+      throw new Error('LinkedIn access token could not be retrieved from database');
+    }
+  }
+
+  /**
+   * ---------------------------------------------------------
+   *  UPDATE ACCESS TOKEN IN DATABASE
+   * ---------------------------------------------------------
+   */
+  private async updateAccessTokenInDatabase(newToken: string): Promise<void> {
+    try {
+      await this.dbClient.sql`
+        UPDATE system_settings 
+        SET value = ${newToken}
+        WHERE key = 'linkedin_access_token'
+      `;
+      this.accessToken = newToken;
+      console.log('✅ LinkedIn access token updated in database');
+    } catch (error) {
+      console.error('❌ Failed to update LinkedIn access token in database:', error);
+      throw new Error('LinkedIn access token could not be updated in database');
+    }
   }
 
   /**

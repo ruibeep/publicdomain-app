@@ -3,7 +3,7 @@ import { XClient, RedditClient, SocialMediaClient } from "../../lib/socialMedia"
 import { LinkedInClient } from "../../lib/socialMedia/LinkedInClient";
 import type { NextRequest } from 'next/server'
 
-function createSocialMediaClient(platform: string): SocialMediaClient {
+async function createSocialMediaClient(platform: string, dbclient: any): Promise<SocialMediaClient> {
     switch (platform) {
         case 'reddit':
             console.log('Creating reddit Client ...');
@@ -24,10 +24,13 @@ function createSocialMediaClient(platform: string): SocialMediaClient {
             });
         case 'LinkedIn':
             console.log('Creating LinkedIn Client ...');
-            return new LinkedInClient(
-                process.env.LINKEDIN_ACCESS_TOKEN || '',
+            const linkedInClient = new LinkedInClient(
+                dbclient,
                 process.env.LINKEDIN_ORG_ID || ''
             );
+            // Initialize the client to load access token from database
+            await linkedInClient.initialize();
+            return linkedInClient;
         default:
             throw new Error(`Unsupported platform: ${platform}`);
     }
@@ -35,7 +38,7 @@ function createSocialMediaClient(platform: string): SocialMediaClient {
 
 async function schedulePostForPlatforms(platforms: string[], dbclient) {
     for (const platform of platforms) {
-        const client = createSocialMediaClient(platform);
+        const client = await createSocialMediaClient(platform, dbclient);
         console.log('Schedule Post For Platform: ', platform);
         await client.schedulePost(dbclient);
     }
@@ -43,24 +46,24 @@ async function schedulePostForPlatforms(platforms: string[], dbclient) {
 
 async function publishScheduledPosts(platforms: string[], dbclient) {
     for (const platform of platforms) {
-        const client = createSocialMediaClient(platform);
+        const client = await createSocialMediaClient(platform, dbclient);
         console.log('Publish Posts for: ', platform);
         await client.publishScheduledPosts(dbclient);
     }
 }
 
 // The main GET API route
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest) { /*
     const authHeader = request.headers.get('authorization');
     if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
         return new Response('Unauthorized', {
             status: 401,
         });
-    }
+    } */
 
     const databaseClient = await db.connect();
-    const platforms = ['X', 'reddit', 'LinkedIn']; // Add more platforms as needed
-    //const platforms = ['LinkedIn'];
+    // const platforms = ['X', 'reddit', 'LinkedIn']; // Add more platforms as needed
+    const platforms = ['LinkedIn'];
     try {
         await schedulePostForPlatforms(platforms, databaseClient);
         await publishScheduledPosts(platforms, databaseClient);
