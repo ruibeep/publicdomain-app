@@ -336,7 +336,7 @@ export class XClient extends BaseSocialMediaClient implements SocialMediaClient 
 
     console.log('Step 3: Build the post text dynamically ...');
     const item = quoteToPost[0];
-    const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name} #ebooks #mustread #booklovers #book #ReadersCommunity #bookrecommendations #kindlebooks #ClassicLitMonday #BookologyThursday`;
+    const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name}`;
     console.log('  Post text:', postText);
 
     console.log('Step 4: Insert the new post for tomorrow ...');
