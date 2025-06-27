@@ -11,8 +11,8 @@ export async function GET(request: Request) {
         const databaseClient = await db.connect();
 
         // Test publishing scheduled Facebook posts for today
-         await client.publishScheduledPosts(databaseClient);
-        //await client.schedulePost(databaseClient);
+        await client.schedulePost(databaseClient);
+        //await client.publishScheduledPosts(databaseClient);
 
         return NextResponse.json({ success: true });
     } catch (error) {

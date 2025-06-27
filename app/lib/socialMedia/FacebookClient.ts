@@ -226,6 +226,29 @@ export class FacebookClient extends BaseSocialMediaClient implements SocialMedia
 
                     await this.updatePostStatus(client, post.id);
                     console.log(`Facebook post "${post.text}" published successfully.`);
+
+                    // Add a comment with the book link if available
+                    if (post.book_link && postResult && postResult.id) {
+                        // Add UTM parameters to the book link for tracking
+                        const utmLink = `${post.book_link}?utm_source=facebook.com&utm_medium=referral&utm_campaign=facebook-scheduled-posts`;
+                        const commentRes = await fetch(
+                            `https://graph.facebook.com/v22.0/${postResult.id}/comments`,
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    message: `Download the ebook for free: ${utmLink}`,
+                                    access_token: this.accessToken,
+                                }),
+                            }
+                        );
+                        const commentData = await commentRes.json();
+                        if (!commentRes.ok) {
+                            console.error('Failed to comment on Facebook post:', commentData);
+                        } else {
+                            console.log('✅ Successfully commented on Facebook post:', commentData);
+                        }
+                    }
                 } catch (error) {
                     if (error instanceof Error) {
                         console.error(`Failed to publish post ID ${post.id}:`, error.message);
