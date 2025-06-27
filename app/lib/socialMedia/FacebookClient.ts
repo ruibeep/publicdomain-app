@@ -13,29 +13,7 @@ export class FacebookClient extends BaseSocialMediaClient implements SocialMedia
     }
 
     async postToFacebook(text: string, imageUrl?: string): Promise<any> {
-        const url = `https://graph.facebook.com/v19.0/${this.pageId}/feed`;
-        
-        // Check if we have the required permissions first
-        try {
-            const permissionsUrl = `https://graph.facebook.com/v19.0/${this.pageId}/permissions`;
-            const permissionsResponse = await fetch(`${permissionsUrl}?access_token=${this.accessToken}`);
-            const permissionsData = await permissionsResponse.json();
-            
-            const requiredPermissions = ['pages_read_engagement', 'pages_manage_posts'];
-            const missingPermissions = requiredPermissions.filter(perm => 
-                !permissionsData.data?.some(p => p.permission === perm && p.status === 'granted')
-            );
-
-            if (missingPermissions.length > 0) {
-                throw new Error(`Missing required Facebook permissions: ${missingPermissions.join(', ')}. Please ensure your access token has these permissions.`);
-            }
-        } catch (error) {
-            if (error instanceof Error) {
-                console.error('Error checking Facebook permissions:', error.message);
-                throw error;
-            }
-            throw new Error('Unexpected error while checking Facebook permissions');
-        }
+        const url = `https://graph.facebook.com/v22.0/${this.pageId}/feed`;
 
         const body: any = {
             message: text,
@@ -77,7 +55,7 @@ export class FacebookClient extends BaseSocialMediaClient implements SocialMedia
     }
 
     async schedulePost(client: VercelPoolClient): Promise<any[]> {
-        console.log('Step 1: Check if there are already posts for tomorrow...');
+        console.log('Step 1: Check if there are already Facebook posts scheduled for tomorrow...');
         const existingPosts = await client.sql`
             SELECT 1
             FROM posts
@@ -87,52 +65,106 @@ export class FacebookClient extends BaseSocialMediaClient implements SocialMedia
         `;
 
         if (existingPosts.rows.length > 0) {
-            console.log('   A post for tomorrow already exists. Aborting...');
+            console.log('   A Facebook post for tomorrow already exists. Aborting...');
             return [];
+        } else {
+            console.log('   No scheduled Facebook posts found for tomorrow. Proceeding...');
         }
 
-        console.log('Step 2: Fetch the next book to publish...');
-        const bookToPostResult = await client.sql`
-            SELECT 
-                b.id AS book_id,
-                b.title AS book_title,
-                b.cover AS book_cover,
-                a.name AS author_name
-            FROM 
-                books b
-            LEFT JOIN 
-                authors a ON b.author_id = a.id
-            LEFT JOIN 
-                posts p ON b.id = p.book_id AND p.platform = 'Facebook'
-            GROUP BY 
-                b.id, b.title, b.cover, a.name
-            ORDER BY 
-                COUNT(p.book_id) ASC
+        console.log('Step 2: Fetch the next quote to publish...');
+        const quoteToPostResult = await client.sql`
+            WITH book_quote_counts AS (
+                SELECT
+                    b.id AS book_id,
+                    b.title AS book_title,
+                    b.cover AS book_cover,
+                    a.name AS author_name,
+                    COUNT(p.id) AS book_post_count
+                FROM books b
+                JOIN authors a ON b.author_id = a.id
+                LEFT JOIN quotes q ON b.id = q.book_id
+                LEFT JOIN posts p ON q.id = p.quote_id AND p.platform = 'Facebook'
+                GROUP BY b.id, b.title, b.cover, a.name
+            ),
+            quote_post_counts AS (
+                SELECT
+                    q.id AS quote_id,
+                    q.quote,
+                    q.popularity,
+                    q.book_id,
+                    COUNT(p.id) AS quote_post_count
+                FROM quotes q
+                LEFT JOIN posts p ON q.id = p.quote_id AND p.platform = 'Facebook'
+                GROUP BY q.id, q.quote, q.popularity, q.book_id
+            ),
+            filtered_books AS (
+                SELECT
+                    bq.book_id,
+                    bq.book_title,
+                    bq.book_cover,
+                    bq.author_name,
+                    MIN(qpc.quote_post_count) AS min_quote_post_count,
+                    bq.book_post_count
+                FROM book_quote_counts bq
+                JOIN quote_post_counts qpc ON bq.book_id = qpc.book_id
+                GROUP BY bq.book_id, bq.book_title, bq.book_cover, bq.author_name, bq.book_post_count
+                ORDER BY bq.book_post_count ASC
+            ),
+            final_quotes AS (
+                SELECT
+                    qpc.quote_id,
+                    qpc.quote,
+                    qpc.book_id,
+                    fb.book_title,
+                    fb.book_cover,
+                    fb.author_name,
+                    qpc.popularity
+                FROM filtered_books fb
+                JOIN quote_post_counts qpc ON fb.book_id = qpc.book_id
+                WHERE qpc.quote_post_count = fb.min_quote_post_count
+                ORDER BY fb.book_post_count ASC, qpc.quote_post_count ASC, qpc.popularity DESC
+            )
+            SELECT
+                quote_id,
+                quote,
+                book_id,
+                book_title,
+                book_cover,
+                author_name,
+                popularity
+            FROM final_quotes
             LIMIT 1;
         `;
 
-        if (bookToPostResult.rows.length === 0) {
-            console.log('   No books available to schedule. Aborting...');
+        const quoteToPost = quoteToPostResult.rows;
+        if (!quoteToPost.length) {
+            console.log('   No quotes available to schedule. Aborting...');
             return [];
+        } else {
+            console.log('   Next Quote to post:', quoteToPost[0].quote);
         }
 
-        const item = bookToPostResult.rows[0];
-        const postText = `${item.book_title} by ${item.author_name}`;
+        console.log('Step 3: Build the post text dynamically ...');
+        const item = quoteToPost[0];
+        const postText = `"${item.quote}" - ${item.book_title} by ${item.author_name}`;
+        console.log('  Post text:', postText);
 
-        console.log('Step 3: Insert the new post for tomorrow...');
+        console.log('Step 4: Insert the new Facebook post for tomorrow ...');
         const data = await client.sql`
-            INSERT INTO posts (book_id, text, image_link, platform, status, published_date)
+            INSERT INTO posts (quote_id, book_id, text, image_link, platform, status, published_date)
             VALUES (
+                ${item.quote_id},
                 ${item.book_id},
                 ${postText},
                 ${item.book_cover},
                 'Facebook',
                 'scheduled',
                 (CURRENT_DATE + INTERVAL '1 day')
-            );
+            )
+            RETURNING id;
         `;
 
-        console.log(`   Scheduled 1 post for tomorrow: Book ID ${item.book_id}, Text: "${postText}".`);
+        console.log(`   Scheduled 1 Facebook post for tomorrow: Quote ID ${item.quote_id}, Text: "${postText}".`);
         return data.rows;
     }
 
@@ -149,7 +181,49 @@ export class FacebookClient extends BaseSocialMediaClient implements SocialMedia
 
             for (const post of scheduledPosts) {
                 try {
-                    await this.postToFacebook(post.text, post.image_link);
+                    let postResult;
+                    if (post.image_link) {
+                        // 1. Upload the image to the page
+                        const photoRes = await fetch(
+                            `https://graph.facebook.com/v22.0/${this.pageId}/photos?published=false&access_token=${this.accessToken}`,
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    url: post.image_link,
+                                    published: false,
+                                    caption: post.text,
+                                    access_token: this.accessToken,
+                                }),
+                            }
+                        );
+                        const photoData = await photoRes.json();
+                        if (!photoRes.ok || !photoData.id) {
+                            throw new Error(`Failed to upload photo: ${JSON.stringify(photoData)}`);
+                        }
+
+                        // 2. Create the post with the uploaded photo
+                        const feedRes = await fetch(
+                            `https://graph.facebook.com/v22.0/${this.pageId}/feed`,
+                            {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    message: post.text,
+                                    attached_media: [{ media_fbid: photoData.id }],
+                                    access_token: this.accessToken,
+                                }),
+                            }
+                        );
+                        postResult = await feedRes.json();
+                        if (!feedRes.ok) {
+                            throw new Error(`Failed to create post with image: ${JSON.stringify(postResult)}`);
+                        }
+                    } else {
+                        // No image, just post text
+                        postResult = await this.postToFacebook(post.text);
+                    }
+
                     await this.updatePostStatus(client, post.id);
                     console.log(`Facebook post "${post.text}" published successfully.`);
                 } catch (error) {
